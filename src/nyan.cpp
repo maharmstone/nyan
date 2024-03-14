@@ -82,6 +82,62 @@ ASN1_SEQUENCE(spc_indirect_data_content) = {
 
 IMPLEMENT_ASN1_FUNCTIONS(spc_indirect_data_content)
 
+struct SpcSerializedObject {
+    ASN1_OCTET_STRING classId;
+    ASN1_OCTET_STRING serializedData;
+};
+
+ASN1_SEQUENCE(SpcSerializedObject) = {
+    ASN1_EMBED(SpcSerializedObject, classId, ASN1_OCTET_STRING),
+    ASN1_EMBED(SpcSerializedObject, serializedData, ASN1_OCTET_STRING)
+} ASN1_SEQUENCE_END(SpcSerializedObject)
+
+IMPLEMENT_ASN1_FUNCTIONS(SpcSerializedObject)
+
+struct SpcString {
+    int type;
+    union {
+        ASN1_BMPSTRING unicode;
+        ASN1_IA5STRING ascii;
+    };
+};
+
+ASN1_CHOICE(SpcString) = {
+    ASN1_IMP_EMBED(SpcString, unicode, ASN1_BMPSTRING, 0),
+    ASN1_IMP_EMBED(SpcString, ascii, ASN1_IA5STRING, 1),
+} ASN1_CHOICE_END(SpcString)
+
+IMPLEMENT_ASN1_FUNCTIONS(SpcString)
+
+struct SpcLink {
+    int type;
+    union {
+        ASN1_IA5STRING url;
+        SpcSerializedObject moniker;
+        SpcString file;
+    };
+};
+
+ASN1_CHOICE(SpcLink) = {
+    ASN1_IMP_EMBED(SpcLink, url, ASN1_IA5STRING, 0),
+    ASN1_IMP_EMBED(SpcLink, moniker, SpcSerializedObject, 1),
+    ASN1_EXP_EMBED(SpcLink, file, SpcString, 2)
+} ASN1_CHOICE_END(SpcLink)
+
+IMPLEMENT_ASN1_FUNCTIONS(SpcLink)
+
+struct SpcPeImageData {
+    ASN1_BIT_STRING flags;
+    SpcLink* file;
+};
+
+ASN1_SEQUENCE(SpcPeImageData) = {
+    ASN1_EMBED(SpcPeImageData, flags, ASN1_BIT_STRING),
+    ASN1_EXP_OPT(SpcPeImageData, file, SpcLink, 0)
+} ASN1_SEQUENCE_END(SpcPeImageData)
+
+IMPLEMENT_ASN1_FUNCTIONS(SpcPeImageData)
+
 struct cat_attr {
     int type;
     union {
@@ -202,13 +258,18 @@ static void add_spc_indirect_data_context(STACK_OF(CatalogAuthAttr)* attributes,
 
     auto& spcidc = ca->spcidc;
 
+    auto pid = SpcPeImageData_new();
+    ASN1_BIT_STRING_set_bit(&pid->flags, 0, 1);
+    ASN1_BIT_STRING_set_bit(&pid->flags, 1, 0);
+    ASN1_BIT_STRING_set_bit(&pid->flags, 2, 1);
+    pid->file = SpcLink_new();
+    pid->file->type = 2;
+
+    auto oct = ASN1_item_pack(pid, SpcPeImageData_it(), nullptr);
+
     spcidc.data.type = OBJ_txt2obj(SPC_PE_IMAGE_DATA_OBJID, 1);
-    spcidc.data.value = nullptr; // FIXME
-    // SEQUENCE (2 elem)
-    //     BIT STRING (3 bit) 101
-    //     [0] (1 elem)
-    //         [2] (1 elem)
-    //             [0] (0 byte)
+    spcidc.data.value = ASN1_TYPE_new();
+    ASN1_TYPE_set(spcidc.data.value, V_ASN1_SEQUENCE, oct);
 
     spcidc.digest.algorithm.type = OBJ_txt2obj(szOID_OIWSEC_sha1, 1);
     spcidc.digest.algorithm.value = ASN1_TYPE_new();
