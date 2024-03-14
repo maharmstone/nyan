@@ -26,29 +26,43 @@ ASN1_SEQUENCE(SpcAttributeTypeAndOptionalValue) = {
 
 IMPLEMENT_ASN1_FUNCTIONS(SpcAttributeTypeAndOptionalValue)
 
-struct cat_name {
+struct cat_name_value {
     ASN1_BMPSTRING tag;
     uint32_t flags;
     ASN1_OCTET_STRING value;
 };
 
-ASN1_SEQUENCE(cat_name) = {
-    ASN1_EMBED(cat_name, tag, ASN1_BMPSTRING),
-    ASN1_EMBED(cat_name, flags, INT32),
-    ASN1_EMBED(cat_name, value, ASN1_OCTET_STRING)
-} ASN1_SEQUENCE_END(cat_name)
+ASN1_SEQUENCE(cat_name_value) = {
+    ASN1_EMBED(cat_name_value, tag, ASN1_BMPSTRING),
+    ASN1_EMBED(cat_name_value, flags, INT32),
+    ASN1_EMBED(cat_name_value, value, ASN1_OCTET_STRING)
+} ASN1_SEQUENCE_END(cat_name_value)
 
-IMPLEMENT_ASN1_FUNCTIONS(cat_name)
+IMPLEMENT_ASN1_FUNCTIONS(cat_name_value)
+
+struct cat_member_info {
+    ASN1_BMPSTRING guid;
+    uint32_t cert_version;
+};
+
+ASN1_SEQUENCE(cat_member_info) = {
+    ASN1_EMBED(cat_member_info, guid, ASN1_BMPSTRING),
+    ASN1_EMBED(cat_member_info, cert_version, INT32)
+} ASN1_SEQUENCE_END(cat_member_info)
+
+IMPLEMENT_ASN1_FUNCTIONS(cat_member_info)
 
 struct cat_attr {
     int type;
     union {
-        cat_name name;
+        cat_name_value name_value;
+        cat_member_info member_info;
     };
 };
 
 ASN1_CHOICE(cat_attr) = {
-    ASN1_EMBED(cat_attr, name, cat_name)
+    ASN1_EMBED(cat_attr, name_value, cat_name_value),
+    ASN1_EMBED(cat_attr, member_info, cat_member_info)
 } ASN1_CHOICE_END(cat_attr)
 
 DEFINE_STACK_OF(cat_attr)
@@ -77,8 +91,6 @@ ASN1_SEQUENCE(CatalogInfo) = {
     ASN1_SET_OF(CatalogInfo, attributes, CatalogAuthAttr)
 } ASN1_SEQUENCE_END(CatalogInfo)
 
-// DECLARE_STACK_OF(CatalogInfo)
-// DECLARE_ASN1_SET_OF(CatalogInfo)
 DEFINE_STACK_OF(CatalogInfo)
 IMPLEMENT_ASN1_FUNCTIONS(CatalogInfo)
 
@@ -113,12 +125,35 @@ static void add_cat_name_value(STACK_OF(CatalogAuthAttr)* attributes, string_vie
     int unilen;
     auto uni = OPENSSL_utf82uni(tag.data(), tag.size(), nullptr, &unilen);
 
-    ASN1_STRING_set(&ca->name.tag, uni, unilen);
+    ASN1_STRING_set(&ca->name_value.tag, uni, unilen);
 
     OPENSSL_free(uni);
 
-    ca->name.flags = flags;
-    ASN1_OCTET_STRING_set(&ca->name.value, (uint8_t*)value.data(), value.size() * sizeof(char16_t));
+    ca->name_value.flags = flags;
+    ASN1_OCTET_STRING_set(&ca->name_value.value, (uint8_t*)value.data(), value.size() * sizeof(char16_t));
+
+    sk_cat_attr_push(attr->contents, ca);
+
+    sk_CatalogAuthAttr_push(attributes, attr);
+}
+
+static void add_cat_member_info(STACK_OF(CatalogAuthAttr)* attributes, string_view guid,
+                                uint32_t cert_version) {
+    auto attr = CatalogAuthAttr_new();
+    attr->type = OBJ_txt2obj(CAT_NAMEVALUE_OBJID, 1);
+    attr->contents = sk_cat_attr_new_null();
+
+    auto ca = cat_attr_new();
+    ca->type = 1;
+
+    int unilen;
+    auto uni = OPENSSL_utf82uni(guid.data(), guid.size(), nullptr, &unilen);
+
+    ASN1_STRING_set(&ca->member_info.guid, uni, unilen);
+
+    OPENSSL_free(uni);
+
+    ca->member_info.cert_version = cert_version;
 
     sk_cat_attr_push(attr->contents, ca);
 
@@ -162,6 +197,9 @@ int main() {
     catinfo->attributes = sk_CatalogAuthAttr_new_null();
 
     add_cat_name_value(catinfo->attributes, "File", 0x10010001, u"btrfs.sys"); // FIXME - trailing nulls
+    add_cat_member_info(catinfo->attributes, "{C689AAB8-8E78-11D0-8C47-00C04FC295EE}", 512);
+    add_cat_name_value(catinfo->attributes, "OSAttr", 0x10010001, u"2:5.1,2:5.2,2:6.0,2:6.1,2:6.2,2:6.3,2:10.0");
+    // FIXME - spcIndirectDataContext
 
     sk_CatalogInfo_push(c.header_attributes, catinfo);
 
