@@ -6,6 +6,7 @@
 #include <openssl/pkcs12.h>
 #include <string.h>
 #include <string>
+#include <span>
 
 using namespace std;
 
@@ -13,6 +14,11 @@ using namespace std;
 #define szOID_CATALOG_LIST "1.3.6.1.4.1.311.12.1.1"
 #define szOID_CATALOG_LIST_MEMBER "1.3.6.1.4.1.311.12.1.2"
 #define CAT_NAMEVALUE_OBJID "1.3.6.1.4.1.311.12.2.1"
+#define CAT_MEMBERINFO_OBJID "1.3.6.1.4.1.311.12.2.2"
+#define SPC_INDIRECT_DATA_OBJID "1.3.6.1.4.1.311.2.1.4"
+#define SPC_PE_IMAGE_PAGE_HASHES_V1_OBJID "1.3.6.1.4.1.311.2.3.1"
+#define SPC_PE_IMAGE_DATA_OBJID "1.3.6.1.4.1.311.2.1.15"
+#define szOID_OIWSEC_sha1 "1.3.14.3.2.26"
 
 struct SpcAttributeTypeAndOptionalValue {
     ASN1_OBJECT* type;
@@ -52,17 +58,43 @@ ASN1_SEQUENCE(cat_member_info) = {
 
 IMPLEMENT_ASN1_FUNCTIONS(cat_member_info)
 
+struct spc_digest {
+    SpcAttributeTypeAndOptionalValue algorithm;
+    ASN1_OCTET_STRING hash;
+};
+
+ASN1_SEQUENCE(spc_digest) = {
+    ASN1_EMBED(spc_digest, algorithm, SpcAttributeTypeAndOptionalValue),
+    ASN1_EMBED(spc_digest, hash, ASN1_OCTET_STRING),
+} ASN1_SEQUENCE_END(spc_digest)
+
+IMPLEMENT_ASN1_FUNCTIONS(spc_digest)
+
+struct spc_indirect_data_content {
+    SpcAttributeTypeAndOptionalValue data;
+    spc_digest digest;
+};
+
+ASN1_SEQUENCE(spc_indirect_data_content) = {
+    ASN1_EMBED(spc_indirect_data_content, data, SpcAttributeTypeAndOptionalValue),
+    ASN1_EMBED(spc_indirect_data_content, digest, spc_digest)
+} ASN1_SEQUENCE_END(spc_indirect_data_content)
+
+IMPLEMENT_ASN1_FUNCTIONS(spc_indirect_data_content)
+
 struct cat_attr {
     int type;
     union {
         cat_name_value name_value;
         cat_member_info member_info;
+        spc_indirect_data_content spcidc;
     };
 };
 
 ASN1_CHOICE(cat_attr) = {
     ASN1_EMBED(cat_attr, name_value, cat_name_value),
-    ASN1_EMBED(cat_attr, member_info, cat_member_info)
+    ASN1_EMBED(cat_attr, member_info, cat_member_info),
+    ASN1_EMBED(cat_attr, spcidc, spc_indirect_data_content)
 } ASN1_CHOICE_END(cat_attr)
 
 DEFINE_STACK_OF(cat_attr)
@@ -140,7 +172,7 @@ static void add_cat_name_value(STACK_OF(CatalogAuthAttr)* attributes, string_vie
 static void add_cat_member_info(STACK_OF(CatalogAuthAttr)* attributes, string_view guid,
                                 uint32_t cert_version) {
     auto attr = CatalogAuthAttr_new();
-    attr->type = OBJ_txt2obj(CAT_NAMEVALUE_OBJID, 1);
+    attr->type = OBJ_txt2obj(CAT_MEMBERINFO_OBJID, 1);
 
     auto ca = cat_attr_new();
     ca->type = 1;
@@ -154,6 +186,34 @@ static void add_cat_member_info(STACK_OF(CatalogAuthAttr)* attributes, string_vi
     OPENSSL_free(uni);
 
     ca->member_info.cert_version = cert_version;
+
+    sk_cat_attr_push(attr->contents, ca);
+
+    sk_CatalogAuthAttr_push(attributes, attr);
+}
+
+static void add_spc_indirect_data_context(STACK_OF(CatalogAuthAttr)* attributes,
+                                          span<const uint8_t> hash) {
+    auto attr = CatalogAuthAttr_new();
+    attr->type = OBJ_txt2obj(SPC_INDIRECT_DATA_OBJID, 1);
+
+    auto ca = cat_attr_new();
+    ca->type = 2;
+
+    auto& spcidc = ca->spcidc;
+
+    spcidc.data.type = OBJ_txt2obj(SPC_PE_IMAGE_DATA_OBJID, 1);
+    spcidc.data.value = nullptr; // FIXME
+    // SEQUENCE (2 elem)
+    //     BIT STRING (3 bit) 101
+    //     [0] (1 elem)
+    //         [2] (1 elem)
+    //             [0] (0 byte)
+
+    spcidc.digest.algorithm.type = OBJ_txt2obj(szOID_OIWSEC_sha1, 1);
+    spcidc.digest.algorithm.value = ASN1_TYPE_new();
+    spcidc.digest.algorithm.value->type = V_ASN1_NULL;
+    ASN1_OCTET_STRING_set(&spcidc.digest.hash, hash.data(), (int)hash.size());
 
     sk_cat_attr_push(attr->contents, ca);
 
@@ -194,10 +254,12 @@ int main() {
 
     ASN1_OCTET_STRING_set(&catinfo->digest, (uint8_t*)u"2C9546DF01047D0D74D6FF7259D3ABCDEEF513B5", strlen("2C9546DF01047D0D74D6FF7259D3ABCDEEF513B5") * sizeof(char16_t));
 
+    static const uint8_t hash[] = { 0x26, 0x30, 0x7e, 0x29, 0x39, 0x2c, 0xaf, 0xf9, 0xb4, 0xd4, 0x0b, 0x60, 0x8f, 0x35, 0xe0, 0x6a, 0xf8, 0x1c, 0xff, 0x61 };
+
     add_cat_name_value(catinfo->attributes, "File", 0x10010001, u"btrfs.sys"); // FIXME - trailing nulls
     add_cat_member_info(catinfo->attributes, "{C689AAB8-8E78-11D0-8C47-00C04FC295EE}", 512);
     add_cat_name_value(catinfo->attributes, "OSAttr", 0x10010001, u"2:5.1,2:5.2,2:6.0,2:6.1,2:6.2,2:6.3,2:10.0");
-    // FIXME - spcIndirectDataContext
+    add_spc_indirect_data_context(catinfo->attributes, hash);
 
     sk_CatalogInfo_push(c.header_attributes, catinfo);
 
