@@ -3,11 +3,16 @@
 #include <openssl/err.h>
 #include <openssl/types.h>
 #include <openssl/objects.h>
+#include <openssl/pkcs12.h>
 #include <string.h>
+#include <string>
+
+using namespace std;
 
 #define szOID_CTL "1.3.6.1.4.1.311.10.1"
 #define szOID_CATALOG_LIST "1.3.6.1.4.1.311.12.1.1"
 #define szOID_CATALOG_LIST_MEMBER "1.3.6.1.4.1.311.12.1.2"
+#define CAT_NAMEVALUE_OBJID "1.3.6.1.4.1.311.12.2.1"
 
 struct SpcAttributeTypeAndOptionalValue {
     ASN1_OBJECT* type;
@@ -21,25 +26,54 @@ ASN1_SEQUENCE(SpcAttributeTypeAndOptionalValue) = {
 
 IMPLEMENT_ASN1_FUNCTIONS(SpcAttributeTypeAndOptionalValue)
 
+struct cat_name {
+    ASN1_BMPSTRING tag;
+    uint32_t flags;
+    ASN1_OCTET_STRING value;
+};
+
+ASN1_SEQUENCE(cat_name) = {
+    ASN1_EMBED(cat_name, tag, ASN1_BMPSTRING),
+    ASN1_EMBED(cat_name, flags, INT32),
+    ASN1_EMBED(cat_name, value, ASN1_OCTET_STRING)
+} ASN1_SEQUENCE_END(cat_name)
+
+IMPLEMENT_ASN1_FUNCTIONS(cat_name)
+
+struct cat_attr {
+    int type;
+    union {
+        cat_name name;
+    };
+};
+
+ASN1_CHOICE(cat_attr) = {
+    ASN1_EMBED(cat_attr, name, cat_name)
+} ASN1_CHOICE_END(cat_attr)
+
+DEFINE_STACK_OF(cat_attr)
+IMPLEMENT_ASN1_FUNCTIONS(cat_attr)
+
 struct CatalogAuthAttr {
     ASN1_OBJECT* type;
-    ASN1_TYPE* contents;
+    STACK_OF(cat_attr)* contents;
 };
 
 ASN1_SEQUENCE(CatalogAuthAttr) = {
     ASN1_SIMPLE(CatalogAuthAttr, type, ASN1_OBJECT),
-    ASN1_OPT(CatalogAuthAttr, contents, ASN1_ANY)
+    ASN1_SET_OF(CatalogAuthAttr, contents, cat_attr)
 } ASN1_SEQUENCE_END(CatalogAuthAttr)
 
+DEFINE_STACK_OF(CatalogAuthAttr)
 IMPLEMENT_ASN1_FUNCTIONS(CatalogAuthAttr)
 
 struct CatalogInfo {
-    ASN1_OCTET_STRING* digest;
+    ASN1_OCTET_STRING digest;
     STACK_OF(CatalogAuthAttr)* attributes;
 };
 
 ASN1_SEQUENCE(CatalogInfo) = {
-    ASN1_SIMPLE(CatalogInfo, digest, ASN1_OCTET_STRING),
+    ASN1_EMBED(CatalogInfo, digest, ASN1_OCTET_STRING),
     ASN1_SET_OF(CatalogInfo, attributes, CatalogAuthAttr)
 } ASN1_SEQUENCE_END(CatalogInfo)
 
@@ -67,67 +101,99 @@ ASN1_SEQUENCE(MsCtlContent) = {
 
 IMPLEMENT_ASN1_FUNCTIONS(MsCtlContent)
 
+static void add_cat_name_value(STACK_OF(CatalogAuthAttr)* attributes, string_view tag,
+                               uint32_t flags, u16string_view value) {
+    auto attr = CatalogAuthAttr_new();
+    attr->type = OBJ_txt2obj(CAT_NAMEVALUE_OBJID, 1);
+    attr->contents = sk_cat_attr_new_null();
+
+    auto ca = cat_attr_new();
+    ca->type = 0;
+
+    int unilen;
+    auto uni = OPENSSL_utf82uni(tag.data(), tag.size(), nullptr, &unilen);
+
+    ASN1_STRING_set(&ca->name.tag, uni, unilen);
+
+    OPENSSL_free(uni);
+
+    ca->name.flags = flags;
+    ASN1_OCTET_STRING_set(&ca->name.value, (uint8_t*)value.data(), value.size() * sizeof(char16_t));
+
+    sk_cat_attr_push(attr->contents, ca);
+
+    sk_CatalogAuthAttr_push(attributes, attr);
+}
+
 int main() {
     MsCtlContent c;
-    
+
     static const char identifier[] = "C8D7FC7596D61245B5B59565B67D8573";
-    
+
     // SpcAttributeTypeAndOptionalValue s;
-    
+
     // const char* name = "Fletch";
     // ASN1_OCTET_STRING* asn1_name = ASN1_OCTET_STRING_new();
     // ASN1_OCTET_STRING_set(asn1_name, (const unsigned char*)name, strlen(name));
-    
+
     // auto oid = ASN1_OBJECT_new();
-    
+
     c.type.type = OBJ_txt2obj(szOID_CATALOG_LIST, 1);
     // c.type.value = ASN1_TYPE_new();
     // c.type.value->type = V_ASN1_NULL;
     c.type.value = nullptr;
-    
+
     c.identifier = ASN1_OCTET_STRING_new();
     ASN1_OCTET_STRING_set(c.identifier, (uint8_t*)identifier, strlen(identifier));
     // ASN1_OCTET_STRING_set(&c.identifier, (uint8_t*)"", 0);
-    
+
     c.time = ASN1_UTCTIME_new();
     ASN1_UTCTIME_set(c.time, 1710345480); // 2024-03-13 15:58:00
-    
+
     c.version.type = OBJ_txt2obj(szOID_CATALOG_LIST_MEMBER, 1);
     c.version.value = ASN1_TYPE_new();
     c.version.value->type = V_ASN1_NULL;
-    
+
     c.header_attributes = sk_CatalogInfo_new_null();
     auto catinfo = CatalogInfo_new();
-    
-    // FIXME
-    
+
+    ASN1_OCTET_STRING_set(&catinfo->digest, (uint8_t*)u"2C9546DF01047D0D74D6FF7259D3ABCDEEF513B5", strlen("2C9546DF01047D0D74D6FF7259D3ABCDEEF513B5") * sizeof(char16_t));
+
+    catinfo->attributes = sk_CatalogAuthAttr_new_null();
+
+    add_cat_name_value(catinfo->attributes, "File", 0x10010001, u"btrfs.sys"); // FIXME - trailing nulls
+
     sk_CatalogInfo_push(c.header_attributes, catinfo);
-    // sk_CatalogInfo_push(c.header_attributes, CatalogInfo_new());
-    
+
     unsigned char* out = nullptr;
     // int len = i2d_SpcAttributeTypeAndOptionalValue(&c.type, &out);
     int len = i2d_MsCtlContent(&c, &out);
-    
+
     ASN1_TYPE_free(c.type.value);
     ASN1_OBJECT_free(c.type.type);
     ASN1_OCTET_STRING_free(c.identifier);
     ASN1_UTCTIME_free(c.time);
     ASN1_OBJECT_free(c.version.type);
     ASN1_TYPE_free(c.version.value);
-    sk_CatalogInfo_pop_free(c.header_attributes, CatalogInfo_free);
-    
+
+    sk_CatalogInfo_pop_free(c.header_attributes, [](CatalogInfo* cat) {
+        // ASN1_OCTET_STRING_free(cat->digest);
+        sk_CatalogAuthAttr_pop_free(cat->attributes, CatalogAuthAttr_free);
+        CatalogInfo_free(cat);
+    });
+
     printf("len = %i\n", len);
-    
+
     for (int i = 0; i < len; i++) {
         if (i % 16 == 0 && i != 0)
             printf("\n");
-        
+
         printf("%02x ", out[i]);
     }
-    
+
     printf("\n");
-    
+
     OPENSSL_free(out);
-    
+
     return 0;
 }
