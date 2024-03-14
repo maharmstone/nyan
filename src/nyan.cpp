@@ -6,6 +6,7 @@
 #include <openssl/pkcs12.h>
 #include <string.h>
 #include <string>
+#include <vector>
 #include <span>
 
 using namespace std;
@@ -281,6 +282,42 @@ static void add_spc_indirect_data_context(STACK_OF(CatalogAuthAttr)* attributes,
     sk_CatalogAuthAttr_push(attributes, attr);
 }
 
+static uint8_t hex_char(uint8_t val) {
+    if (val < 0xa)
+        return val + '0';
+    else
+        return val - 0xa + 'A';
+}
+
+static vector<uint8_t> make_hash_string(span<const uint8_t> hash) {
+    vector<uint8_t> ret;
+
+    ret.resize((hash.size() + 1) * 2 * sizeof(char16_t));
+
+    auto ptr = ret.data();
+
+    while (!hash.empty()) {
+        *ptr = hex_char(hash.front() >> 4);
+        ptr++;
+        *ptr = 0;
+        ptr++;
+
+        *ptr = hex_char(hash.front() & 0xf);
+        ptr++;
+        *ptr = 0;
+        ptr++;
+
+        hash = hash.subspan(1);
+    }
+
+    *ptr = 0;
+    ptr++;
+    *ptr = 0;
+    ptr++;
+
+    return ret;
+}
+
 int main() {
     MsCtlContent c;
 
@@ -313,9 +350,11 @@ int main() {
     c.header_attributes = sk_CatalogInfo_new_null();
     auto catinfo = CatalogInfo_new();
 
-    ASN1_OCTET_STRING_set(&catinfo->digest, (uint8_t*)u"2C9546DF01047D0D74D6FF7259D3ABCDEEF513B5", strlen("2C9546DF01047D0D74D6FF7259D3ABCDEEF513B5") * sizeof(char16_t));
-
     static const uint8_t hash[] = { 0x26, 0x30, 0x7e, 0x29, 0x39, 0x2c, 0xaf, 0xf9, 0xb4, 0xd4, 0x0b, 0x60, 0x8f, 0x35, 0xe0, 0x6a, 0xf8, 0x1c, 0xff, 0x61 };
+
+    auto hash_str = make_hash_string(hash);
+
+    ASN1_OCTET_STRING_set(&catinfo->digest, hash_str.data(), (int)hash_str.size());
 
     add_cat_name_value(catinfo->attributes, "File", 0x10010001, u"btrfs.sys"); // FIXME - trailing nulls
     add_cat_member_info(catinfo->attributes, "{C689AAB8-8E78-11D0-8C47-00C04FC295EE}", 512);
@@ -325,7 +364,6 @@ int main() {
     sk_CatalogInfo_push(c.header_attributes, catinfo);
 
     unsigned char* out = nullptr;
-    // int len = i2d_SpcAttributeTypeAndOptionalValue(&c.type, &out);
     int len = i2d_MsCtlContent(&c, &out);
 
     ASN1_TYPE_free(c.type.value);
