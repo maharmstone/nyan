@@ -122,7 +122,7 @@ static void add_cat_name_value(STACK_OF(CatalogAuthAttr)* attributes, string_vie
     ca->type = 0;
 
     int unilen;
-    auto uni = OPENSSL_utf82uni(tag.data(), tag.size(), nullptr, &unilen);
+    auto uni = OPENSSL_utf82uni(tag.data(), (int)tag.size(), nullptr, &unilen);
 
     ca->name_value.tag = ASN1_STRING_new();
     ASN1_STRING_set(ca->name_value.tag, uni, unilen);
@@ -130,7 +130,7 @@ static void add_cat_name_value(STACK_OF(CatalogAuthAttr)* attributes, string_vie
     OPENSSL_free(uni);
 
     ca->name_value.flags = flags;
-    ASN1_OCTET_STRING_set(&ca->name_value.value, (uint8_t*)value.data(), value.size() * sizeof(char16_t));
+    ASN1_OCTET_STRING_set(&ca->name_value.value, (uint8_t*)value.data(), (int)(value.size() * sizeof(char16_t)));
 
     sk_cat_attr_push(attr->contents, ca);
 
@@ -146,7 +146,7 @@ static void add_cat_member_info(STACK_OF(CatalogAuthAttr)* attributes, string_vi
     ca->type = 1;
 
     int unilen;
-    auto uni = OPENSSL_utf82uni(guid.data(), guid.size(), nullptr, &unilen);
+    auto uni = OPENSSL_utf82uni(guid.data(), (int)guid.size(), nullptr, &unilen);
 
     ca->member_info.guid = ASN1_STRING_new();
     ASN1_STRING_set(ca->member_info.guid, uni, unilen);
