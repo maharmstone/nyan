@@ -214,7 +214,8 @@ static void add_cat_name_value(STACK_OF(CatalogAuthAttr)* attributes, string_vie
     auto uni = OPENSSL_utf82uni(tag.data(), (int)tag.size(), nullptr, &unilen);
 
     ca->name_value.tag = ASN1_STRING_new();
-    ASN1_STRING_set(ca->name_value.tag, uni, unilen);
+    ASN1_STRING_set(ca->name_value.tag, uni,
+                    (int)(unilen - sizeof(char16_t))); // we don't want the trailing null
 
     OPENSSL_free(uni);
 
