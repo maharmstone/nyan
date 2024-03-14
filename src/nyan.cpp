@@ -203,7 +203,7 @@ ASN1_SEQUENCE(MsCtlContent) = {
 IMPLEMENT_ASN1_FUNCTIONS(MsCtlContent)
 
 static void add_cat_name_value(STACK_OF(CatalogAuthAttr)* attributes, string_view tag,
-                               uint32_t flags, u16string_view value) {
+                               uint32_t flags, const char16_t* value) {
     auto attr = CatalogAuthAttr_new();
     attr->type = OBJ_txt2obj(CAT_NAMEVALUE_OBJID, 1);
 
@@ -220,7 +220,9 @@ static void add_cat_name_value(STACK_OF(CatalogAuthAttr)* attributes, string_vie
     OPENSSL_free(uni);
 
     ca->name_value.flags = flags;
-    ASN1_OCTET_STRING_set(&ca->name_value.value, (uint8_t*)value.data(), (int)(value.size() * sizeof(char16_t)));
+
+    auto value_len = char_traits<char16_t>::length(value) + 1; // include trailing null
+    ASN1_OCTET_STRING_set(&ca->name_value.value, (uint8_t*)value, (int)(value_len * sizeof(char16_t)));
 
     sk_cat_attr_push(attr->contents, ca);
 
@@ -357,7 +359,7 @@ int main() {
 
     ASN1_OCTET_STRING_set(&catinfo->digest, hash_str.data(), (int)hash_str.size());
 
-    add_cat_name_value(catinfo->attributes, "File", 0x10010001, u"btrfs.sys"); // FIXME - trailing nulls
+    add_cat_name_value(catinfo->attributes, "File", 0x10010001, u"btrfs.sys");
     add_cat_member_info(catinfo->attributes, "{C689AAB8-8E78-11D0-8C47-00C04FC295EE}", 512);
     add_cat_name_value(catinfo->attributes, "OSAttr", 0x10010001, u"2:5.1,2:5.2,2:6.0,2:6.1,2:6.2,2:6.3,2:10.0");
     add_spc_indirect_data_context(catinfo->attributes, hash);
