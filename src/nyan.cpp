@@ -221,7 +221,6 @@ static void populate_cat_name_value(cat_name_value& cnv, string_view tag, uint32
     int unilen;
     auto uni = OPENSSL_utf82uni(tag.data(), (int)tag.size(), nullptr, &unilen);
 
-    cnv.tag = ASN1_STRING_new();
     ASN1_STRING_set(cnv.tag, uni,
                     (int)(unilen - sizeof(char16_t))); // we don't want the trailing null
 
@@ -241,6 +240,7 @@ static void add_cat_name_value(STACK_OF(CatalogAuthAttr)* attributes, string_vie
     auto ca = cat_attr_new();
     ca->type = 0;
 
+    ca->name_value.tag = ASN1_STRING_new();
     populate_cat_name_value(ca->name_value, tag, flags, value);
 
     sk_cat_attr_push(attr->contents, ca);
@@ -289,6 +289,8 @@ static void add_spc_indirect_data_context(STACK_OF(CatalogAuthAttr)* attributes,
     pid->file->type = 2;
 
     auto oct = ASN1_item_pack(pid, SpcPeImageData_it(), nullptr);
+
+    SpcPeImageData_free(pid);
 
     spcidc.data.type = OBJ_txt2obj(SPC_PE_IMAGE_DATA_OBJID, 1);
     spcidc.data.value = ASN1_TYPE_new();
@@ -394,38 +396,26 @@ static void do_pkcs(MsCtlContent* c) {
     fclose(f);
 
     OPENSSL_free(out);
+
+    PKCS7_free(p7);
 }
 
 int main() {
-    MsCtlContent c;
+    auto c = MsCtlContent_new();
 
     static const char identifier[] = "C8D7FC7596D61245B5B59565B67D8573";
 
-    // SpcAttributeTypeAndOptionalValue s;
+    c->type.type = OBJ_txt2obj(szOID_CATALOG_LIST, 1);
+    c->type.value = nullptr;
 
-    // const char* name = "Fletch";
-    // ASN1_OCTET_STRING* asn1_name = ASN1_OCTET_STRING_new();
-    // ASN1_OCTET_STRING_set(asn1_name, (const unsigned char*)name, strlen(name));
+    ASN1_OCTET_STRING_set(c->identifier, (uint8_t*)identifier, strlen(identifier));
 
-    // auto oid = ASN1_OBJECT_new();
+    ASN1_UTCTIME_set(c->time, 1710345480); // 2024-03-13 15:58:00
 
-    c.type.type = OBJ_txt2obj(szOID_CATALOG_LIST, 1);
-    // c.type.value = ASN1_TYPE_new();
-    // c.type.value->type = V_ASN1_NULL;
-    c.type.value = nullptr;
+    c->version.type = OBJ_txt2obj(szOID_CATALOG_LIST_MEMBER, 1);
+    c->version.value = ASN1_TYPE_new();
+    ASN1_TYPE_set(c->version.value, V_ASN1_NULL, nullptr);
 
-    c.identifier = ASN1_OCTET_STRING_new();
-    ASN1_OCTET_STRING_set(c.identifier, (uint8_t*)identifier, strlen(identifier));
-    // ASN1_OCTET_STRING_set(&c.identifier, (uint8_t*)"", 0);
-
-    c.time = ASN1_UTCTIME_new();
-    ASN1_UTCTIME_set(c.time, 1710345480); // 2024-03-13 15:58:00
-
-    c.version.type = OBJ_txt2obj(szOID_CATALOG_LIST_MEMBER, 1);
-    c.version.value = ASN1_TYPE_new();
-    c.version.value->type = V_ASN1_NULL;
-
-    c.header_attributes = sk_CatalogInfo_new_null();
     auto catinfo = CatalogInfo_new();
 
     static const uint8_t hash[] = { 0x26, 0x30, 0x7e, 0x29, 0x39, 0x2c, 0xaf, 0xf9, 0xb4, 0xd4, 0x0b, 0x60, 0x8f, 0x35, 0xe0, 0x6a, 0xf8, 0x1c, 0xff, 0x61 };
@@ -439,36 +429,15 @@ int main() {
     add_cat_name_value(catinfo->attributes, "OSAttr", 0x10010001, u"2:5.1,2:5.2,2:6.0,2:6.1,2:6.2,2:6.3,2:10.0");
     add_spc_indirect_data_context(catinfo->attributes, hash);
 
-    sk_CatalogInfo_push(c.header_attributes, catinfo);
+    sk_CatalogInfo_push(c->header_attributes, catinfo);
 
-    c.extensions = sk_cert_extension_new_null();
+    add_extension(c->extensions, "OS", 0x10010001, u"XPX86,XPX64,VistaX86,VistaX64,7X86,7X64,8X86,8X64,8ARM,_v63,_v63_X64,_v63_ARM,_v100,_v100_X64,_v100_X64_22H2,_v100_ARM64_22H2");
+    add_extension(c->extensions, "HWID2", 0x10010001, u"root\\btrfs");
+    add_extension(c->extensions, "HWID1", 0x10010001, u"btrfsvolume");
 
-    add_extension(c.extensions, "OS", 0x10010001, u"XPX86,XPX64,VistaX86,VistaX64,7X86,7X64,8X86,8X64,8ARM,_v63,_v63_X64,_v63_ARM,_v100,_v100_X64,_v100_X64_22H2,_v100_ARM64_22H2");
-    add_extension(c.extensions, "HWID2", 0x10010001, u"root\\btrfs");
-    add_extension(c.extensions, "HWID1", 0x10010001, u"btrfsvolume");
+    do_pkcs(c);
 
-    do_pkcs(&c);
-
-    ASN1_TYPE_free(c.type.value);
-    ASN1_OBJECT_free(c.type.type);
-    ASN1_OCTET_STRING_free(c.identifier);
-    ASN1_UTCTIME_free(c.time);
-    ASN1_OBJECT_free(c.version.type);
-    ASN1_TYPE_free(c.version.value);
-
-    sk_CatalogInfo_pop_free(c.header_attributes, [](auto cat) {
-        while (sk_CatalogAuthAttr_num(cat->attributes) > 0) {
-            auto attr = sk_CatalogAuthAttr_pop(cat->attributes);
-
-            while (sk_cat_attr_num(attr->contents) > 0) {
-                cat_attr_free(sk_cat_attr_pop(attr->contents));
-            }
-
-            CatalogAuthAttr_free(attr);
-        }
-
-        CatalogInfo_free(cat);
-    });
+    MsCtlContent_free(c);
 
     return 0;
 }
