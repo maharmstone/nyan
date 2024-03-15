@@ -361,6 +361,41 @@ static void add_extension(STACK_OF(cert_extension)* extensions, string_view name
     sk_cert_extension_push(extensions, ext);
 }
 
+static void do_pkcs(MsCtlContent* c) {
+    auto p7 = PKCS7_new();
+    auto p7s = PKCS7_SIGNED_new();
+
+    p7->type = OBJ_nid2obj(NID_pkcs7_signed);
+    p7->d.sign = p7s;
+
+    p7s->contents->type = OBJ_txt2obj(szOID_CTL, 1);
+    ASN1_INTEGER_set(p7s->version, 1);
+
+    auto oct = ASN1_item_pack(c, MsCtlContent_it(), nullptr);
+
+    p7s->contents->d.other = ASN1_TYPE_new();
+    ASN1_TYPE_set(p7s->contents->d.other, V_ASN1_SEQUENCE, oct);
+
+    unsigned char* out = nullptr;
+    int len = i2d_PKCS7(p7, &out);
+    printf("len = %i\n", len);
+
+    for (int i = 0; i < len; i++) {
+        if (i % 16 == 0 && i != 0)
+            printf("\n");
+
+        printf("%02x ", out[i]);
+    }
+
+    printf("\n");
+
+    auto f = fopen("out.cat", "wb");
+    fwrite(out, len, 1, f);
+    fclose(f);
+
+    OPENSSL_free(out);
+}
+
 int main() {
     MsCtlContent c;
 
@@ -412,8 +447,7 @@ int main() {
     add_extension(c.extensions, "HWID2", 0x10010001, u"root\\btrfs");
     add_extension(c.extensions, "HWID1", 0x10010001, u"btrfsvolume");
 
-    unsigned char* out = nullptr;
-    int len = i2d_MsCtlContent(&c, &out);
+    do_pkcs(&c);
 
     ASN1_TYPE_free(c.type.value);
     ASN1_OBJECT_free(c.type.type);
@@ -435,19 +469,6 @@ int main() {
 
         CatalogInfo_free(cat);
     });
-
-    printf("len = %i\n", len);
-
-    for (int i = 0; i < len; i++) {
-        if (i % 16 == 0 && i != 0)
-            printf("\n");
-
-        printf("%02x ", out[i]);
-    }
-
-    printf("\n");
-
-    OPENSSL_free(out);
 
     return 0;
 }
