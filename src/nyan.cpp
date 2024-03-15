@@ -183,13 +183,26 @@ ASN1_SEQUENCE(CatalogInfo) = {
 DEFINE_STACK_OF(CatalogInfo)
 IMPLEMENT_ASN1_FUNCTIONS(CatalogInfo)
 
+struct cert_extension {
+    ASN1_OBJECT* type;
+    ASN1_OCTET_STRING blob;
+};
+
+ASN1_SEQUENCE(cert_extension) = {
+    ASN1_SIMPLE(cert_extension, type, ASN1_OBJECT),
+    ASN1_EMBED(cert_extension, blob, ASN1_OCTET_STRING)
+} ASN1_SEQUENCE_END(cert_extension)
+
+DEFINE_STACK_OF(cert_extension)
+IMPLEMENT_ASN1_FUNCTIONS(cert_extension)
+
 struct MsCtlContent {
     SpcAttributeTypeAndOptionalValue type;
     ASN1_OCTET_STRING* identifier;
     ASN1_UTCTIME* time;
     SpcAttributeTypeAndOptionalValue version;
     STACK_OF(CatalogInfo)* header_attributes;
-    ASN1_TYPE* filename;
+    STACK_OF(cert_extension)* extensions;
 };
 
 ASN1_SEQUENCE(MsCtlContent) = {
@@ -197,10 +210,28 @@ ASN1_SEQUENCE(MsCtlContent) = {
     ASN1_SIMPLE(MsCtlContent, identifier, ASN1_OCTET_STRING),
     ASN1_SIMPLE(MsCtlContent, time, ASN1_UTCTIME),
     ASN1_EMBED(MsCtlContent, version, SpcAttributeTypeAndOptionalValue),
-    ASN1_SEQUENCE_OF(MsCtlContent, header_attributes, CatalogInfo)
+    ASN1_SEQUENCE_OF(MsCtlContent, header_attributes, CatalogInfo),
+    ASN1_EXP_SEQUENCE_OF(MsCtlContent, extensions, cert_extension, 0)
 } ASN1_SEQUENCE_END(MsCtlContent)
 
 IMPLEMENT_ASN1_FUNCTIONS(MsCtlContent)
+
+static void populate_cat_name_value(cat_name_value& cnv, string_view tag, uint32_t flags,
+                                    const char16_t* value) {
+    int unilen;
+    auto uni = OPENSSL_utf82uni(tag.data(), (int)tag.size(), nullptr, &unilen);
+
+    cnv.tag = ASN1_STRING_new();
+    ASN1_STRING_set(cnv.tag, uni,
+                    (int)(unilen - sizeof(char16_t))); // we don't want the trailing null
+
+    OPENSSL_free(uni);
+
+    cnv.flags = flags;
+
+    auto value_len = char_traits<char16_t>::length(value) + 1; // include trailing null
+    ASN1_OCTET_STRING_set(&cnv.value, (uint8_t*)value, (int)(value_len * sizeof(char16_t)));
+}
 
 static void add_cat_name_value(STACK_OF(CatalogAuthAttr)* attributes, string_view tag,
                                uint32_t flags, const char16_t* value) {
@@ -210,19 +241,7 @@ static void add_cat_name_value(STACK_OF(CatalogAuthAttr)* attributes, string_vie
     auto ca = cat_attr_new();
     ca->type = 0;
 
-    int unilen;
-    auto uni = OPENSSL_utf82uni(tag.data(), (int)tag.size(), nullptr, &unilen);
-
-    ca->name_value.tag = ASN1_STRING_new();
-    ASN1_STRING_set(ca->name_value.tag, uni,
-                    (int)(unilen - sizeof(char16_t))); // we don't want the trailing null
-
-    OPENSSL_free(uni);
-
-    ca->name_value.flags = flags;
-
-    auto value_len = char_traits<char16_t>::length(value) + 1; // include trailing null
-    ASN1_OCTET_STRING_set(&ca->name_value.value, (uint8_t*)value, (int)(value_len * sizeof(char16_t)));
+    populate_cat_name_value(ca->name_value, tag, flags, value);
 
     sk_cat_attr_push(attr->contents, ca);
 
@@ -321,6 +340,27 @@ static vector<uint8_t> make_hash_string(span<const uint8_t> hash) {
     return ret;
 }
 
+static void add_extension(STACK_OF(cert_extension)* extensions, string_view name, uint32_t flags,
+                          const char16_t* value) {
+    auto ext = cert_extension_new();
+    ext->type = OBJ_txt2obj(CAT_NAMEVALUE_OBJID, 1);
+
+    auto cnv = cat_name_value_new();
+
+    populate_cat_name_value(*cnv, name, flags, value);
+
+    uint8_t* out = nullptr;
+    int len = i2d_cat_name_value(cnv, &out);
+
+    cat_name_value_free(cnv);
+
+    ASN1_OCTET_STRING_set(&ext->blob, out, len);
+
+    OPENSSL_free(out);
+
+    sk_cert_extension_push(extensions, ext);
+}
+
 int main() {
     MsCtlContent c;
 
@@ -365,6 +405,12 @@ int main() {
     add_spc_indirect_data_context(catinfo->attributes, hash);
 
     sk_CatalogInfo_push(c.header_attributes, catinfo);
+
+    c.extensions = sk_cert_extension_new_null();
+
+    add_extension(c.extensions, "OS", 0x10010001, u"XPX86,XPX64,VistaX86,VistaX64,7X86,7X64,8X86,8X64,8ARM,_v63,_v63_X64,_v63_ARM,_v100,_v100_X64,_v100_X64_22H2,_v100_ARM64_22H2");
+    add_extension(c.extensions, "HWID2", 0x10010001, u"root\\btrfs");
+    add_extension(c.extensions, "HWID1", 0x10010001, u"btrfsvolume");
 
     unsigned char* out = nullptr;
     int len = i2d_MsCtlContent(&c, &out);
