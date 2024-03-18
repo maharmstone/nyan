@@ -12,7 +12,11 @@ configure_file(src/config.h.in config.h)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 set(SRC_FILES
-	src/nyan.cpp)
+	src/nyan.cpp
+	src/authenticode.cpp
+	src/sha1.cpp
+	src/sha256.cpp
+)
 
 add_executable(nyan ${SRC_FILES})
 

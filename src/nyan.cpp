@@ -4,10 +4,18 @@
 #include <openssl/types.h>
 #include <openssl/objects.h>
 #include <openssl/pkcs12.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <string.h>
 #include <string>
 #include <vector>
 #include <span>
+#include <filesystem>
+#include "sha1.h"
+#include "sha256.h"
+#include "authenticode.h"
 
 using namespace std;
 
@@ -400,6 +408,46 @@ static void do_pkcs(MsCtlContent* c) {
     PKCS7_free(p7);
 }
 
+template<typename Hasher>
+static decltype(Hasher{}.finalize()) do_authenticode(const filesystem::path& fn) {
+    int fd = open(fn.string().c_str(), O_RDONLY);
+
+    if (fd == -1)
+        throw runtime_error("open failed (errno " + to_string(errno) + ")");
+
+    struct stat st;
+
+    if (fstat(fd, &st) == -1) {
+        auto err = errno;
+        close(fd);
+        throw runtime_error("fstat failed (errno " + to_string(err) + ")");
+    }
+
+    size_t length = st.st_size;
+
+    void* addr = mmap(nullptr, length, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (addr == MAP_FAILED) {
+        auto err = errno;
+        close(fd);
+        throw runtime_error("mmap failed (errno " + to_string(err) + ")");
+    }
+
+    decltype(Hasher{}.finalize()) digest;
+
+    try {
+        digest = authenticode<Hasher>(span((uint8_t*)addr, length));
+    } catch (...) {
+        munmap(addr, length);
+        close(fd);
+        throw;
+    }
+
+    munmap(addr, length);
+    close(fd);
+
+    return digest;
+}
+
 int main() {
     auto c = MsCtlContent_new();
 
@@ -418,7 +466,9 @@ int main() {
 
     auto catinfo = CatalogInfo_new();
 
-    static const uint8_t hash[] = { 0x26, 0x30, 0x7e, 0x29, 0x39, 0x2c, 0xaf, 0xf9, 0xb4, 0xd4, 0x0b, 0x60, 0x8f, 0x35, 0xe0, 0x6a, 0xf8, 0x1c, 0xff, 0x61 };
+    filesystem::path fn = "/home/nobackup/btrfs-package/1.9/release/amd64/btrfs.sys";
+
+    auto hash = do_authenticode<sha1_hasher>(fn);
 
     auto hash_str = make_hash_string(hash);
 
