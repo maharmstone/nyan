@@ -16,8 +16,8 @@
 using namespace std;
 
 template<typename T, typename Hasher>
-static void authenticode2(span<const uint8_t> file, uint16_t num_sections,
-                          const T& opthead, string_view fn) {
+static decltype(Hasher{}.finalize()) authenticode2(span<const uint8_t> file, uint16_t num_sections,
+                                                   const T& opthead) {
     Hasher ctx;
     size_t bytes_hashed;
 
@@ -71,19 +71,11 @@ static void authenticode2(span<const uint8_t> file, uint16_t num_sections,
     if (file.size() > bytes_hashed)
         ctx.update(file.data() + bytes_hashed, file.size() - bytes_hashed - cert_size);
 
-    auto digest = ctx.finalize();
-
-    string hash;
-
-    for (auto b : digest) {
-        hash += format("{:02x}", b);
-    }
-
-    cout << format("{}  {}\n", hash, fn);
+    return ctx.finalize();
 }
 
 template<typename Hasher>
-static void authenticode(span<const uint8_t> file, string_view fn) {
+static decltype(Hasher{}.finalize()) authenticode(span<const uint8_t> file) {
     if (file.size() < sizeof(IMAGE_DOS_HEADER))
         throw runtime_error("File too short for IMAGE_DOS_HEADER.");
 
@@ -102,14 +94,12 @@ static void authenticode(span<const uint8_t> file, string_view fn) {
 
     switch (nt_header.OptionalHeader32.Magic) {
         case IMAGE_NT_OPTIONAL_HDR32_MAGIC:
-            authenticode2<IMAGE_OPTIONAL_HEADER32, Hasher>(file, nt_header.FileHeader.NumberOfSections,
-                                                           nt_header.OptionalHeader32, fn);
-            break;
+            return authenticode2<IMAGE_OPTIONAL_HEADER32, Hasher>(file, nt_header.FileHeader.NumberOfSections,
+                                                                  nt_header.OptionalHeader32);
 
         case IMAGE_NT_OPTIONAL_HDR64_MAGIC:
-            authenticode2<IMAGE_OPTIONAL_HEADER64, Hasher>(file, nt_header.FileHeader.NumberOfSections,
-                                                           nt_header.OptionalHeader64, fn);
-            break;
+            return authenticode2<IMAGE_OPTIONAL_HEADER64, Hasher>(file, nt_header.FileHeader.NumberOfSections,
+                                                                  nt_header.OptionalHeader64);
 
         default:
             throw runtime_error("Invalid optional header magic.");
@@ -141,7 +131,15 @@ static void calc_authenticode(const char* fn) {
     }
 
     try {
-        authenticode<Hasher>(span((uint8_t*)addr, length), fn);
+        auto digest = authenticode<Hasher>(span((uint8_t*)addr, length));
+
+        string hash;
+
+        for (auto b : digest) {
+            hash += format("{:02x}", b);
+        }
+
+        cout << format("{}  {}\n", hash, fn);
     } catch (...) {
         munmap(addr, length);
         close(fd);
