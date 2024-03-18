@@ -114,7 +114,7 @@ static inline void consume_chunk(uint32_t *h, const uint8_t *p)
  * Public functions. See header file for documentation.
  */
 
-SHA256::SHA256() {
+sha256_hasher::sha256_hasher() {
 	chunk_pos = chunk;
 	space_left = SIZE_OF_SHA_256_CHUNK;
 	total_len = 0;
@@ -132,7 +132,7 @@ SHA256::SHA256() {
 	h[7] = 0x5be0cd19;
 }
 
-void SHA256::update(const uint8_t* data, size_t len) {
+void sha256_hasher::update(const uint8_t* data, size_t len) {
 	total_len += len;
 
 	/*
@@ -168,7 +168,7 @@ void SHA256::update(const uint8_t* data, size_t len) {
 	}
 }
 
-std::array<uint8_t, 32> SHA256::finalize() {
+std::array<uint8_t, 32> sha256_hasher::finalize() {
 	uint8_t *pos = chunk_pos;
 
 	/*

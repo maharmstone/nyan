@@ -18,9 +18,9 @@
  * @note Although the details are exposed here, in order to make instantiation easy, you should refrain from directly
  * accessing the fields, as they may change in the future.
  */
-class SHA256 {
+class sha256_hasher {
 public:
-	SHA256();
+	sha256_hasher();
 	void update(const uint8_t* data, size_t len);
 	std::array<uint8_t, 32> finalize();
 
