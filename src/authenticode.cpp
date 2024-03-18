@@ -15,18 +15,16 @@ using namespace std;
 
 template<typename T>
 static void authenticode2(span<const uint8_t> file, uint16_t num_sections, const T& opthead) {
-    SHA1_CTX ctx;
+    SHA1 ctx;
     array<uint8_t, 20> digest;
     size_t bytes_hashed;
 
-    SHA1Init(&ctx);
-
-    SHA1Update(&ctx, file.data(), (uint32_t)((uintptr_t)&opthead.CheckSum - (uintptr_t)file.data()));
-    SHA1Update(&ctx, (const uint8_t*)&opthead.Subsystem, offsetof(T, DataDirectory) - offsetof(T, Subsystem));
+    ctx.update(file.data(), (uint32_t)((uintptr_t)&opthead.CheckSum - (uintptr_t)file.data()));
+    ctx.update((const uint8_t*)&opthead.Subsystem, offsetof(T, DataDirectory) - offsetof(T, Subsystem));
 
     span dd(opthead.DataDirectory, opthead.NumberOfRvaAndSizes);
 
-    SHA1Update(&ctx, (const uint8_t*)dd.data(),
+    ctx.update((const uint8_t*)dd.data(),
                (uint32_t)min(dd.size(), IMAGE_DIRECTORY_ENTRY_CERTIFICATE) * sizeof(IMAGE_DATA_DIRECTORY));
 
     const uint8_t* ptr;
@@ -40,7 +38,7 @@ static void authenticode2(span<const uint8_t> file, uint16_t num_sections, const
         cert_size = 0;
     }
 
-    SHA1Update(&ctx, ptr, (uint32_t)(file.data() + opthead.SizeOfHeaders - ptr));
+    ctx.update(ptr, (uint32_t)(file.data() + opthead.SizeOfHeaders - ptr));
     bytes_hashed = opthead.SizeOfHeaders;
 
     vector<const IMAGE_SECTION_HEADER*> sections;
@@ -64,14 +62,16 @@ static void authenticode2(span<const uint8_t> file, uint16_t num_sections, const
         if (s->PointerToRawData + s->SizeOfRawData > file.size())
             throw runtime_error("Section out of bounds.");
 
-        SHA1Update(&ctx, file.data() + s->PointerToRawData, s->SizeOfRawData);
+        ctx.update(file.data() + s->PointerToRawData, s->SizeOfRawData);
         bytes_hashed += s->SizeOfRawData;
     }
 
     if (file.size() > bytes_hashed)
-        SHA1Update(&ctx, file.data() + bytes_hashed, (uint32_t)(file.size() - bytes_hashed - cert_size));
+        ctx.update(file.data() + bytes_hashed, (uint32_t)(file.size() - bytes_hashed - cert_size));
 
-    SHA1Final(digest, &ctx);
+    ctx.finalize(digest);
+
+    // FIXME - include file name, like sha1sum
 
     cout << format("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}\n",
                    digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7], digest[8], digest[9],

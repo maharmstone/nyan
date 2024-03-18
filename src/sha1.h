@@ -9,13 +9,15 @@ By Steve Reid <steve@edmweb.com>
 #include <string>
 #include <array>
 
-struct SHA1_CTX {
+class SHA1 {
+public:
+    SHA1();
+    void update(const uint8_t* data, uint32_t len);
+    void finalize(std::array<uint8_t, 20>& digest);
+
+private:
     uint32_t state[5];
     uint32_t count[2];
     unsigned char buffer[64];
 };
 
-void SHA1Init(SHA1_CTX* context);
-void SHA1Update(SHA1_CTX* context, const uint8_t* data, uint32_t len);
-void SHA1Final(std::array<uint8_t, 20>& digest, SHA1_CTX* context);
-std::array<uint8_t, 20> sha1(const std::string& s);
