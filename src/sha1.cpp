@@ -123,10 +123,9 @@ SHA1::SHA1() {
 
 /* Run your data through this. */
 
-void SHA1::update(const uint8_t* data, uint32_t len)
+void SHA1::update(const uint8_t* data, size_t len)
 {
-	uint32_t i;
-	uint32_t j;
+	size_t i, j;
 
 	j = count[0];
 

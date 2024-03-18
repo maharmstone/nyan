@@ -12,12 +12,12 @@ By Steve Reid <steve@edmweb.com>
 class SHA1 {
 public:
     SHA1();
-    void update(const uint8_t* data, uint32_t len);
+    void update(const uint8_t* data, size_t len);
     std::array<uint8_t, 20> finalize();
 
 private:
     uint32_t state[5];
-    uint32_t count[2];
+    size_t count[2];
     unsigned char buffer[64];
 };
 

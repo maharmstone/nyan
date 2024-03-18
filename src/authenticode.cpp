@@ -19,13 +19,13 @@ static void authenticode2(span<const uint8_t> file, uint16_t num_sections, const
     Hasher ctx;
     size_t bytes_hashed;
 
-    ctx.update(file.data(), (uint32_t)((uintptr_t)&opthead.CheckSum - (uintptr_t)file.data()));
+    ctx.update(file.data(), (uintptr_t)&opthead.CheckSum - (uintptr_t)file.data());
     ctx.update((const uint8_t*)&opthead.Subsystem, offsetof(T, DataDirectory) - offsetof(T, Subsystem));
 
     span dd(opthead.DataDirectory, opthead.NumberOfRvaAndSizes);
 
     ctx.update((const uint8_t*)dd.data(),
-               (uint32_t)min(dd.size(), IMAGE_DIRECTORY_ENTRY_CERTIFICATE) * sizeof(IMAGE_DATA_DIRECTORY));
+               min(dd.size(), IMAGE_DIRECTORY_ENTRY_CERTIFICATE) * sizeof(IMAGE_DATA_DIRECTORY));
 
     const uint8_t* ptr;
     uint32_t cert_size;
@@ -38,7 +38,7 @@ static void authenticode2(span<const uint8_t> file, uint16_t num_sections, const
         cert_size = 0;
     }
 
-    ctx.update(ptr, (uint32_t)(file.data() + opthead.SizeOfHeaders - ptr));
+    ctx.update(ptr, file.data() + opthead.SizeOfHeaders - ptr);
     bytes_hashed = opthead.SizeOfHeaders;
 
     vector<const IMAGE_SECTION_HEADER*> sections;
@@ -67,7 +67,7 @@ static void authenticode2(span<const uint8_t> file, uint16_t num_sections, const
     }
 
     if (file.size() > bytes_hashed)
-        ctx.update(file.data() + bytes_hashed, (uint32_t)(file.size() - bytes_hashed - cert_size));
+        ctx.update(file.data() + bytes_hashed, file.size() - bytes_hashed - cert_size);
 
     auto digest = ctx.finalize();
 
