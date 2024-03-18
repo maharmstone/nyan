@@ -205,7 +205,7 @@ Print the Authenticode hash of PE files.
                 break;
             }
         } catch (const exception& e) {
-            cerr << "Exception: " << e.what() << endl;
+            cerr << format("{}: {}: {}\n", argv[0], argv[i], e.what());
         }
     }
 
