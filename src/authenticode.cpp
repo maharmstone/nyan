@@ -10,12 +10,13 @@
 #include <algorithm>
 #include "pe.h"
 #include "sha1.h"
+#include "sha256.h"
 
 using namespace std;
 
-template<typename T>
+template<typename T, typename Hasher>
 static void authenticode2(span<const uint8_t> file, uint16_t num_sections, const T& opthead) {
-    SHA1 ctx;
+    Hasher ctx;
     size_t bytes_hashed;
 
     ctx.update(file.data(), (uint32_t)((uintptr_t)&opthead.CheckSum - (uintptr_t)file.data()));
@@ -100,13 +101,13 @@ static void authenticode(span<const uint8_t> file) {
 
     switch (nt_header.OptionalHeader32.Magic) {
         case IMAGE_NT_OPTIONAL_HDR32_MAGIC:
-            authenticode2(file, nt_header.FileHeader.NumberOfSections,
-                          nt_header.OptionalHeader32);
+            authenticode2<IMAGE_OPTIONAL_HEADER32, SHA256>(file, nt_header.FileHeader.NumberOfSections,
+                                                           nt_header.OptionalHeader32);
             break;
 
         case IMAGE_NT_OPTIONAL_HDR64_MAGIC:
-            authenticode2(file, nt_header.FileHeader.NumberOfSections,
-                          nt_header.OptionalHeader64);
+            authenticode2<IMAGE_OPTIONAL_HEADER64, SHA256>(file, nt_header.FileHeader.NumberOfSections,
+                                                          nt_header.OptionalHeader64);
             break;
 
         default:
