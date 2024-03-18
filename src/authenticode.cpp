@@ -15,7 +15,8 @@
 using namespace std;
 
 template<typename T, typename Hasher>
-static void authenticode2(span<const uint8_t> file, uint16_t num_sections, const T& opthead) {
+static void authenticode2(span<const uint8_t> file, uint16_t num_sections,
+                          const T& opthead, string_view fn) {
     Hasher ctx;
     size_t bytes_hashed;
 
@@ -77,13 +78,11 @@ static void authenticode2(span<const uint8_t> file, uint16_t num_sections, const
         hash += format("{:02x}", b);
     }
 
-    // FIXME - include file name, like sha1sum
-
-    cout << format("{}\n", hash);
+    cout << format("{}  {}\n", hash, fn);
 }
 
 template<typename Hasher>
-static void authenticode(span<const uint8_t> file) {
+static void authenticode(span<const uint8_t> file, string_view fn) {
     if (file.size() < sizeof(IMAGE_DOS_HEADER))
         throw runtime_error("File too short for IMAGE_DOS_HEADER.");
 
@@ -103,12 +102,12 @@ static void authenticode(span<const uint8_t> file) {
     switch (nt_header.OptionalHeader32.Magic) {
         case IMAGE_NT_OPTIONAL_HDR32_MAGIC:
             authenticode2<IMAGE_OPTIONAL_HEADER32, Hasher>(file, nt_header.FileHeader.NumberOfSections,
-                                                           nt_header.OptionalHeader32);
+                                                           nt_header.OptionalHeader32, fn);
             break;
 
         case IMAGE_NT_OPTIONAL_HDR64_MAGIC:
             authenticode2<IMAGE_OPTIONAL_HEADER64, Hasher>(file, nt_header.FileHeader.NumberOfSections,
-                                                           nt_header.OptionalHeader64);
+                                                           nt_header.OptionalHeader64, fn);
             break;
 
         default:
@@ -141,7 +140,7 @@ static void calc_authenticode(const char* fn) {
     }
 
     try {
-        authenticode<Hasher>(span((uint8_t*)addr, length));
+        authenticode<Hasher>(span((uint8_t*)addr, length), fn);
     } catch (...) {
         munmap(addr, length);
         close(fd);
