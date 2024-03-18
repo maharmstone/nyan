@@ -28,7 +28,8 @@ endif()
 
 # ----------------------------
 
-add_executable(authenticode src/authenticode.cpp
+add_executable(authenticode src/calcauthenticode.cpp
+	src/authenticode.cpp
 	src/sha1.cpp
 	src/sha256.cpp)
 

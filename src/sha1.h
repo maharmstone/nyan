@@ -8,6 +8,7 @@ By Steve Reid <steve@edmweb.com>
 
 #include <string>
 #include <array>
+#include <stdint.h>
 
 class SHA1 {
 public:
