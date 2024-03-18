@@ -180,7 +180,10 @@ Print the Authenticode hash of PE files.
         return 1;
     }
 
-    // FIXME - reading from stdin
+    if (argc < 3) {
+        cerr << argv[0] << ": at least one file must be specified." << endl;
+        return 1;
+    }
 
     for (int i = 2; i < argc; i++) {
         try {
@@ -200,4 +203,3 @@ Print the Authenticode hash of PE files.
 
     return 0;
 }
-
