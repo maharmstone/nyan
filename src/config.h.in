@@ -1,0 +1,3 @@
+#pragma once
+
+static const char PROJECT_VERSION_MAJOR[] = "@PROJECT_VERSION_MAJOR@";

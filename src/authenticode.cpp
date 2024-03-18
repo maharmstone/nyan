@@ -11,6 +11,7 @@
 #include "pe.h"
 #include "sha1.h"
 #include "sha256.h"
+#include "config.h"
 
 using namespace std;
 
@@ -164,8 +165,15 @@ Print the Authenticode hash of PE files.
       --sha1        output SHA1 hash
       --sha256      output SHA256 hash
       --help        display this help and exit
+      --version     output version information and exit
 )", argv[0]);
 
+        return 1;
+    }
+
+    if (!strcmp(argv[1], "--version")) {
+        cerr << "authenticode " << PROJECT_VERSION_MAJOR << endl;
+        cerr << "Copyright (c) Mark Harmstone 2024" << endl;
         return 1;
     }
 

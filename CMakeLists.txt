@@ -2,11 +2,14 @@ cmake_minimum_required(VERSION 3.10)
 
 include(GNUInstallDirs)
 
-project(nyan)
+project(nyan VERSION 20240318)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+
+configure_file(src/config.h.in config.h)
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 set(SRC_FILES
 	src/nyan.cpp)
