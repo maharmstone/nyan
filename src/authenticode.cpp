@@ -82,6 +82,7 @@ static void authenticode2(span<const uint8_t> file, uint16_t num_sections, const
     cout << format("{}\n", hash);
 }
 
+template<typename Hasher>
 static void authenticode(span<const uint8_t> file) {
     if (file.size() < sizeof(IMAGE_DOS_HEADER))
         throw runtime_error("File too short for IMAGE_DOS_HEADER.");
@@ -101,13 +102,13 @@ static void authenticode(span<const uint8_t> file) {
 
     switch (nt_header.OptionalHeader32.Magic) {
         case IMAGE_NT_OPTIONAL_HDR32_MAGIC:
-            authenticode2<IMAGE_OPTIONAL_HEADER32, SHA256>(file, nt_header.FileHeader.NumberOfSections,
+            authenticode2<IMAGE_OPTIONAL_HEADER32, Hasher>(file, nt_header.FileHeader.NumberOfSections,
                                                            nt_header.OptionalHeader32);
             break;
 
         case IMAGE_NT_OPTIONAL_HDR64_MAGIC:
-            authenticode2<IMAGE_OPTIONAL_HEADER64, SHA256>(file, nt_header.FileHeader.NumberOfSections,
-                                                          nt_header.OptionalHeader64);
+            authenticode2<IMAGE_OPTIONAL_HEADER64, Hasher>(file, nt_header.FileHeader.NumberOfSections,
+                                                           nt_header.OptionalHeader64);
             break;
 
         default:
@@ -115,6 +116,7 @@ static void authenticode(span<const uint8_t> file) {
     }
 }
 
+template<typename Hasher>
 static void calc_authenticode(const char* fn) {
     int fd = open(fn, O_RDONLY);
 
@@ -139,7 +141,7 @@ static void calc_authenticode(const char* fn) {
     }
 
     try {
-        authenticode(span((uint8_t*)addr, length));
+        authenticode<Hasher>(span((uint8_t*)addr, length));
     } catch (...) {
         munmap(addr, length);
         close(fd);
@@ -150,13 +152,51 @@ static void calc_authenticode(const char* fn) {
     close(fd);
 }
 
-int main() {
-    // FIXME - parse arguments
+enum class hash_type {
+    sha1,
+    sha256
+};
 
-    try {
-        calc_authenticode("/home/nobackup/btrfs-package/1.9/release/amd64/mkbtrfs.exe");
-    } catch (const exception& e) {
-        cerr << "Exception: " << e.what() << endl;
+int main(int argc, char* argv[]) {
+    if (argc < 2 || !strcmp(argv[1], "--help")) {
+        cerr << format(R"(Usage: {} [--sha1 | --sha256] [FILE]...
+Print the Authenticode hash of PE files.
+
+      --sha1        output SHA1 hash
+      --sha256      output SHA256 hash
+      --help        display this help and exit
+)", argv[0]);
+
+        return 1;
+    }
+
+    enum hash_type type;
+
+    if (!strcmp(argv[1], "--sha1"))
+        type = hash_type::sha1;
+    else if (!strcmp(argv[1], "--sha256"))
+        type = hash_type::sha256;
+    else {
+        cerr << argv[0] << ": first argument must be either --sha1 or --sha256." << endl;
+        return 1;
+    }
+
+    // FIXME - reading from stdin
+
+    for (int i = 2; i < argc; i++) {
+        try {
+            switch (type) {
+                case hash_type::sha1:
+                    calc_authenticode<SHA1>(argv[i]);
+                break;
+
+                case hash_type::sha256:
+                    calc_authenticode<SHA256>(argv[i]);
+                break;
+            }
+        } catch (const exception& e) {
+            cerr << "Exception: " << e.what() << endl;
+        }
     }
 
     return 0;
