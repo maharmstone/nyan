@@ -6,6 +6,10 @@ static const uint32_t IMAGE_NT_SIGNATURE = 0x00004550; // "PE\0\0"
 static const uint16_t IMAGE_NT_OPTIONAL_HDR32_MAGIC = 0x10b;
 static const uint16_t IMAGE_NT_OPTIONAL_HDR64_MAGIC = 0x20b;
 
+static const size_t IMAGE_DIRECTORY_ENTRY_CERTIFICATE = 4;
+
+#pragma pack(push,1)
+
 struct IMAGE_DOS_HEADER {
     uint16_t e_magic;
     uint16_t e_cblp;
@@ -118,3 +122,18 @@ struct IMAGE_NT_HEADERS {
         IMAGE_OPTIONAL_HEADER64 OptionalHeader64;
     };
 };
+
+struct IMAGE_SECTION_HEADER {
+    char Name[8];
+    uint32_t VirtualSize;
+    uint32_t VirtualAddress;
+    uint32_t SizeOfRawData;
+    uint32_t PointerToRawData;
+    uint32_t PointerToRelocations;
+    uint32_t PointerToLinenumbers;
+    uint16_t NumberOfRelocations;
+    uint16_t NumberOfLinenumbers;
+    uint32_t Characteristics;
+};
+
+#pragma pack(pop)
