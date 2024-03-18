@@ -101,5 +101,5 @@ decltype(Hasher{}.finalize()) authenticode(span<const uint8_t> file) {
     }
 }
 
-template decltype(SHA1{}.finalize()) authenticode<SHA1>(span<const uint8_t> file);
+template decltype(sha1_hasher{}.finalize()) authenticode<sha1_hasher>(span<const uint8_t> file);
 template decltype(SHA256{}.finalize()) authenticode<SHA256>(span<const uint8_t> file);

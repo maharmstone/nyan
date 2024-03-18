@@ -101,7 +101,7 @@ Print the Authenticode hash of PE files.
         try {
             switch (type) {
                 case hash_type::sha1:
-                    calc_authenticode<SHA1>(argv[i]);
+                    calc_authenticode<sha1_hasher>(argv[i]);
                 break;
 
                 case hash_type::sha256:

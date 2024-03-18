@@ -10,9 +10,9 @@ By Steve Reid <steve@edmweb.com>
 #include <array>
 #include <stdint.h>
 
-class SHA1 {
+class sha1_hasher {
 public:
-    SHA1();
+    sha1_hasher();
     void update(const uint8_t* data, size_t len);
     std::array<uint8_t, 20> finalize();
 

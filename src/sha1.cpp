@@ -110,7 +110,7 @@ static void SHA1Transform(uint32_t state[5], const uint8_t buffer[64])
 #endif
 }
 
-SHA1::SHA1() {
+sha1_hasher::sha1_hasher() {
 	/* SHA1 initialization constants */
 	state[0] = 0x67452301;
 	state[1] = 0xEFCDAB89;
@@ -123,7 +123,7 @@ SHA1::SHA1() {
 
 /* Run your data through this. */
 
-void SHA1::update(const uint8_t* data, size_t len)
+void sha1_hasher::update(const uint8_t* data, size_t len)
 {
 	size_t i, j;
 
@@ -152,7 +152,7 @@ void SHA1::update(const uint8_t* data, size_t len)
 
 /* Add padding and return the message digest. */
 
-array<uint8_t, 20> SHA1::finalize()
+array<uint8_t, 20> sha1_hasher::finalize()
 {
 	unsigned i;
 	unsigned char finalcount[8];
