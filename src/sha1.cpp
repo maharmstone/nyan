@@ -153,7 +153,7 @@ void SHA1::update(const uint8_t* data, uint32_t len)
 
 /* Add padding and return the message digest. */
 
-void SHA1::finalize(array<uint8_t, 20>& digest)
+array<uint8_t, 20> SHA1::finalize()
 {
 	unsigned i;
 	unsigned char finalcount[8];
@@ -170,9 +170,14 @@ void SHA1::finalize(array<uint8_t, 20>& digest)
 		c = 0;
 		update(&c, 1);
 	}
+
+	array<uint8_t, 20> ret;
+
 	update(finalcount, 8);  /* Should cause a SHA1Transform() */
 	for (i = 0; i < 20; i++) {
-		digest[i] = (unsigned char)
+		ret[i] = (unsigned char)
 			((state[i>>2] >> ((3-(i & 3)) * 8) ) & 255);
 	}
+
+	return ret;
 }

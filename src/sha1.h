@@ -13,7 +13,7 @@ class SHA1 {
 public:
     SHA1();
     void update(const uint8_t* data, uint32_t len);
-    void finalize(std::array<uint8_t, 20>& digest);
+    std::array<uint8_t, 20> finalize();
 
 private:
     uint32_t state[5];

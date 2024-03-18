@@ -16,7 +16,6 @@ using namespace std;
 template<typename T>
 static void authenticode2(span<const uint8_t> file, uint16_t num_sections, const T& opthead) {
     SHA1 ctx;
-    array<uint8_t, 20> digest;
     size_t bytes_hashed;
 
     ctx.update(file.data(), (uint32_t)((uintptr_t)&opthead.CheckSum - (uintptr_t)file.data()));
@@ -69,13 +68,17 @@ static void authenticode2(span<const uint8_t> file, uint16_t num_sections, const
     if (file.size() > bytes_hashed)
         ctx.update(file.data() + bytes_hashed, (uint32_t)(file.size() - bytes_hashed - cert_size));
 
-    ctx.finalize(digest);
+    auto digest = ctx.finalize();
+
+    string hash;
+
+    for (auto b : digest) {
+        hash += format("{:02x}", b);
+    }
 
     // FIXME - include file name, like sha1sum
 
-    cout << format("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}\n",
-                   digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7], digest[8], digest[9],
-                   digest[10], digest[11], digest[12], digest[13], digest[14], digest[15], digest[16], digest[17], digest[18], digest[19]);
+    cout << format("{}\n", hash);
 }
 
 static void authenticode(span<const uint8_t> file) {
