@@ -13,6 +13,7 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 set(SRC_FILES
 	src/nyan.cpp
+	src/cat.cpp
 	src/authenticode.cpp
 	src/sha1.cpp
 	src/sha256.cpp
