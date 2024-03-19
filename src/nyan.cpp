@@ -446,7 +446,7 @@ static void add_extension(STACK_OF(cert_extension)* extensions, string_view name
     sk_cert_extension_push(extensions, ext);
 }
 
-static void do_pkcs(MsCtlContent* c) {
+static vector<uint8_t> do_pkcs(MsCtlContent* c) {
     auto p7 = PKCS7_new();
     auto p7s = PKCS7_SIGNED_new();
 
@@ -463,24 +463,19 @@ static void do_pkcs(MsCtlContent* c) {
 
     unsigned char* out = nullptr;
     int len = i2d_PKCS7(p7, &out);
-    printf("len = %i\n", len);
 
-    for (int i = 0; i < len; i++) {
-        if (i % 16 == 0 && i != 0)
-            printf("\n");
+    if (len == -1)
+        throw runtime_error("i2d_PKCS7 failed");
 
-        printf("%02x ", out[i]);
-    }
+    vector<uint8_t> ret;
 
-    printf("\n");
-
-    auto f = fopen("out.cat", "wb");
-    fwrite(out, len, 1, f);
-    fclose(f);
+    ret.assign(out, out + len);
 
     OPENSSL_free(out);
 
     PKCS7_free(p7);
+
+    return ret;
 }
 
 template<typename Hasher>
@@ -524,17 +519,26 @@ static decltype(Hasher{}.finalize()) do_authenticode(const filesystem::path& fn,
     return digest;
 }
 
-int main() {
-    auto c = MsCtlContent_new();
+class cat {
+public:
+    cat(string_view identifier, time_t time) : identifier(identifier), time(time) {
+    }
 
-    static const char identifier[] = "C8D7FC7596D61245B5B59565B67D8573";
+    vector<uint8_t> write();
+
+private:
+    string identifier;
+    time_t time;
+};
+
+vector<uint8_t> cat::write() {
+    auto c = MsCtlContent_new();
 
     c->type.type = OBJ_txt2obj(szOID_CATALOG_LIST, 1);
     c->type.value = nullptr;
 
-    ASN1_OCTET_STRING_set(c->identifier, (uint8_t*)identifier, strlen(identifier));
-
-    ASN1_UTCTIME_set(c->time, 1710345480); // 2024-03-13 15:58:00
+    ASN1_OCTET_STRING_set(c->identifier, (uint8_t*)identifier.data(), (int)identifier.size());
+    ASN1_UTCTIME_set(c->time, time);
 
     c->version.type = OBJ_txt2obj(szOID_CATALOG_LIST_MEMBER, 1);
     c->version.value = ASN1_TYPE_new();
@@ -575,9 +579,34 @@ int main() {
     add_extension(c->extensions, "HWID2", 0x10010001, u"root\\btrfs");
     add_extension(c->extensions, "HWID1", 0x10010001, u"btrfsvolume");
 
-    do_pkcs(c);
+    auto ret = do_pkcs(c);
 
     MsCtlContent_free(c);
+
+    return ret;
+}
+
+int main() {
+    cat c("C8D7FC7596D61245B5B59565B67D8573", 1710345480); // 2024-03-13 15:58:00
+
+    // FIXME
+
+    auto v = c.write();
+
+    cout << "len = " << v.size() << endl;
+
+    for (size_t i = 0; i < v.size(); i++) {
+        if (i % 16 == 0 && i != 0)
+            printf("\n");
+
+        printf("%02x ", v[i]);
+    }
+
+    printf("\n");
+
+    auto f = fopen("out.cat", "wb");
+    fwrite(v.data(), v.size(), 1, f);
+    fclose(f);
 
     return 0;
 }
