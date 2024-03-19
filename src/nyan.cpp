@@ -529,6 +529,14 @@ struct cat_extension {
     u16string value;
 };
 
+struct cat_entry {
+    cat_entry(const filesystem::path& fn) : fn(fn) {
+    }
+
+    filesystem::path fn;
+    vector<cat_extension> extensions;
+};
+
 class cat {
 public:
     cat(string_view identifier, time_t time) : identifier(identifier), time(time) {
@@ -536,6 +544,7 @@ public:
 
     vector<uint8_t> write();
 
+    vector<cat_entry> entries;
     vector<cat_extension> extensions;
 
 private:
@@ -544,7 +553,7 @@ private:
 };
 
 vector<uint8_t> cat::write() {
-    auto c = MsCtlContent_new();
+    unique_ptr<MsCtlContent, decltype(&MsCtlContent_free)> c{MsCtlContent_new(), MsCtlContent_free};
 
     c->type.type = OBJ_txt2obj(szOID_CATALOG_LIST, 1);
     c->type.value = nullptr;
@@ -556,52 +565,53 @@ vector<uint8_t> cat::write() {
     c->version.value = ASN1_TYPE_new();
     ASN1_TYPE_set(c->version.value, V_ASN1_NULL, nullptr);
 
-    auto catinfo = CatalogInfo_new();
-
-    filesystem::path fn = "/home/nobackup/btrfs-package/1.9/release/amd64/mkbtrfs.exe";
-
     using Hasher = sha1_hasher;
 
-    vector<pair<uint32_t, decltype(Hasher{}.finalize())>> page_hashes;
+    for (const auto& ent : entries) {
+        auto catinfo = CatalogInfo_new();
 
-    auto hash = do_authenticode<Hasher>(fn, page_hashes);
+        try {
+            vector<pair<uint32_t, decltype(Hasher{}.finalize())>> page_hashes;
 
-    for (const auto& ph : page_hashes) {
-        cout << format("{:x}, ", ph.first);
+            // FIXME - detect if PE file
 
-        for (auto b : ph.second) {
-            cout << format("{:02x}", b);
+            // FIXME - normal hash if not PE
+            auto hash = do_authenticode<Hasher>(ent.fn, page_hashes);
+
+            auto hash_str = make_hash_string(hash);
+
+            ASN1_OCTET_STRING_set(&catinfo->digest, hash_str.data(), (int)hash_str.size());
+
+            for (const auto& ce : ent.extensions) {
+                add_cat_name_value(catinfo->attributes, ce.name, ce.flags, ce.value.c_str());
+            }
+
+            // FIXME - or "{DE351A42-8E59-11D0-8C47-00C04FC295EE}" if not PE
+            add_cat_member_info(catinfo->attributes, "{C689AAB8-8E78-11D0-8C47-00C04FC295EE}", 512);
+
+            // FIXME - only if PE
+            add_spc_indirect_data_context<Hasher>(catinfo->attributes, hash, page_hashes);
+        } catch (...) {
+            CatalogInfo_free(catinfo);
+            throw;
         }
 
-        cout << endl;
+        sk_CatalogInfo_push(c->header_attributes, catinfo);
     }
-
-    auto hash_str = make_hash_string(hash);
-
-    ASN1_OCTET_STRING_set(&catinfo->digest, hash_str.data(), (int)hash_str.size());
-
-    add_cat_name_value(catinfo->attributes, "File", 0x10010001, u"mkbtrfs.exe");
-    add_cat_member_info(catinfo->attributes, "{C689AAB8-8E78-11D0-8C47-00C04FC295EE}", 512);
-    add_cat_name_value(catinfo->attributes, "OSAttr", 0x10010001, u"2:5.1,2:5.2,2:6.0,2:6.1,2:6.2,2:6.3,2:10.0");
-    add_spc_indirect_data_context<Hasher>(catinfo->attributes, hash, page_hashes);
-
-    sk_CatalogInfo_push(c->header_attributes, catinfo);
 
     for (const auto& ce : extensions) {
         add_extension(c->extensions, ce.name, ce.flags, ce.value.c_str());
     }
 
-    auto ret = do_pkcs(c);
-
-    MsCtlContent_free(c);
-
-    return ret;
+    return do_pkcs(c.get());
 }
 
 int main() {
     cat c("C8D7FC7596D61245B5B59565B67D8573", 1710345480); // 2024-03-13 15:58:00
 
-    // FIXME
+    c.entries.emplace_back("/home/nobackup/btrfs-package/1.9/release/amd64/mkbtrfs.exe");
+    c.entries.back().extensions.emplace_back("File", 0x10010001, u"mkbtrfs.exe");
+    c.entries.back().extensions.emplace_back("OSAttr", 0x10010001, u"2:5.1,2:5.2,2:6.0,2:6.1,2:6.2,2:6.3,2:10.0");
 
     c.extensions.emplace_back("OS", 0x10010001, u"XPX86,XPX64,VistaX86,VistaX64,7X86,7X64,8X86,8X64,8ARM,_v63,_v63_X64,_v63_ARM,_v100,_v100_X64,_v100_X64_22H2,_v100_ARM64_22H2");
     c.extensions.emplace_back("HWID2", 0x10010001, u"root\\btrfs");
