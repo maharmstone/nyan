@@ -519,12 +519,24 @@ static decltype(Hasher{}.finalize()) do_authenticode(const filesystem::path& fn,
     return digest;
 }
 
+struct cat_extension {
+    cat_extension(string_view name, uint32_t flags, u16string_view value) :
+        name(name), flags(flags), value(value) {
+    }
+
+    string name;
+    uint32_t flags;
+    u16string value;
+};
+
 class cat {
 public:
     cat(string_view identifier, time_t time) : identifier(identifier), time(time) {
     }
 
     vector<uint8_t> write();
+
+    vector<cat_extension> extensions;
 
 private:
     string identifier;
@@ -575,9 +587,9 @@ vector<uint8_t> cat::write() {
 
     sk_CatalogInfo_push(c->header_attributes, catinfo);
 
-    add_extension(c->extensions, "OS", 0x10010001, u"XPX86,XPX64,VistaX86,VistaX64,7X86,7X64,8X86,8X64,8ARM,_v63,_v63_X64,_v63_ARM,_v100,_v100_X64,_v100_X64_22H2,_v100_ARM64_22H2");
-    add_extension(c->extensions, "HWID2", 0x10010001, u"root\\btrfs");
-    add_extension(c->extensions, "HWID1", 0x10010001, u"btrfsvolume");
+    for (const auto& ce : extensions) {
+        add_extension(c->extensions, ce.name, ce.flags, ce.value.c_str());
+    }
 
     auto ret = do_pkcs(c);
 
@@ -590,6 +602,10 @@ int main() {
     cat c("C8D7FC7596D61245B5B59565B67D8573", 1710345480); // 2024-03-13 15:58:00
 
     // FIXME
+
+    c.extensions.emplace_back("OS", 0x10010001, u"XPX86,XPX64,VistaX86,VistaX64,7X86,7X64,8X86,8X64,8ARM,_v63,_v63_X64,_v63_ARM,_v100,_v100_X64,_v100_X64_22H2,_v100_ARM64_22H2");
+    c.extensions.emplace_back("HWID2", 0x10010001, u"root\\btrfs");
+    c.extensions.emplace_back("HWID1", 0x10010001, u"btrfsvolume");
 
     auto v = c.write();
 
