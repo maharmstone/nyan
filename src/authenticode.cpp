@@ -1,7 +1,6 @@
 #include <stdint.h>
 #include <span>
 #include <vector>
-#include <algorithm>
 #include <stdexcept>
 #include "pe.h"
 #include "authenticode.h"
@@ -40,29 +39,20 @@ static hash_type<Hasher> authenticode2(span<const uint8_t> file, uint16_t num_se
     ctx.update(ptr, file.data() + opthead.SizeOfHeaders - ptr);
     bytes_hashed = opthead.SizeOfHeaders;
 
-    vector<const IMAGE_SECTION_HEADER*> sections;
-
-    sections.reserve(num_sections);
-
-    auto sectspan = span((const IMAGE_SECTION_HEADER*)((uint8_t*)opthead.DataDirectory + (opthead.NumberOfRvaAndSizes * sizeof(IMAGE_DATA_DIRECTORY))),
+    auto sections = span((const IMAGE_SECTION_HEADER*)((uint8_t*)opthead.DataDirectory + (opthead.NumberOfRvaAndSizes * sizeof(IMAGE_DATA_DIRECTORY))),
                          num_sections);
-    for (const auto& s : sectspan) {
+
+    // sections should be guaranteed to be sorted
+
+    for (auto s : sections) {
         if (s.SizeOfRawData == 0)
             continue;
 
-        sections.push_back(&s);
-    }
-
-    sort(sections.begin(), sections.end(), [](const auto& a, const auto& b) {
-        return a->PointerToRawData < b->PointerToRawData;
-    });
-
-    for (auto s : sections) {
-        if (s->PointerToRawData + s->SizeOfRawData > file.size())
+        if (s.PointerToRawData + s.SizeOfRawData > file.size())
             throw runtime_error("Section out of bounds.");
 
-        ctx.update(file.data() + s->PointerToRawData, s->SizeOfRawData);
-        bytes_hashed += s->SizeOfRawData;
+        ctx.update(file.data() + s.PointerToRawData, s.SizeOfRawData);
+        bytes_hashed += s.SizeOfRawData;
     }
 
     if (file.size() > bytes_hashed)
