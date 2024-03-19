@@ -43,3 +43,13 @@ if(NOT MSVC)
 else()
 	target_link_options(authenticode PUBLIC /MANIFEST:NO)
 endif()
+
+# ----------------------------
+
+add_executable(makecat src/makecat.cpp)
+
+if(NOT MSVC)
+	target_compile_options(makecat PUBLIC -Wall -Werror=cast-function-type -Wno-expansion-to-defined -Wunused-parameter -Wtype-limits -Wextra -Wconversion)
+else()
+	target_link_options(makecat PUBLIC /MANIFEST:NO)
+endif()
