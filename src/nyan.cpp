@@ -13,6 +13,8 @@
 #include <vector>
 #include <span>
 #include <filesystem>
+#include <iostream>
+#include <format>
 #include "sha1.h"
 #include "sha256.h"
 #include "authenticode.h"
@@ -409,7 +411,7 @@ static void do_pkcs(MsCtlContent* c) {
 }
 
 template<typename Hasher>
-static decltype(Hasher{}.finalize()) do_authenticode(const filesystem::path& fn) {
+static decltype(Hasher{}.finalize()) do_authenticode(const filesystem::path& fn, vector<pair<uint32_t, decltype(Hasher{}.finalize())>>& page_hashes) {
     int fd = open(fn.string().c_str(), O_RDONLY);
 
     if (fd == -1)
@@ -436,6 +438,7 @@ static decltype(Hasher{}.finalize()) do_authenticode(const filesystem::path& fn)
 
     try {
         digest = authenticode<Hasher>(span((uint8_t*)addr, length));
+        page_hashes = get_page_hashes<Hasher>(span((uint8_t*)addr, length));
     } catch (...) {
         munmap(addr, length);
         close(fd);
@@ -466,15 +469,27 @@ int main() {
 
     auto catinfo = CatalogInfo_new();
 
-    filesystem::path fn = "/home/nobackup/btrfs-package/1.9/release/amd64/btrfs.sys";
+    filesystem::path fn = "/home/nobackup/btrfs-package/1.9/release/amd64/mkbtrfs.exe";
 
-    auto hash = do_authenticode<sha1_hasher>(fn);
+    vector<pair<uint32_t, decltype(sha1_hasher{}.finalize())>> page_hashes;
+
+    auto hash = do_authenticode<sha1_hasher>(fn, page_hashes);
+
+    for (const auto& ph : page_hashes) {
+        cout << format("{:x}, ", ph.first);
+
+        for (auto b : ph.second) {
+            cout << format("{:02x}", b);
+        }
+
+        cout << endl;
+    }
 
     auto hash_str = make_hash_string(hash);
 
     ASN1_OCTET_STRING_set(&catinfo->digest, hash_str.data(), (int)hash_str.size());
 
-    add_cat_name_value(catinfo->attributes, "File", 0x10010001, u"btrfs.sys");
+    add_cat_name_value(catinfo->attributes, "File", 0x10010001, u"mkbtrfs.exe");
     add_cat_member_info(catinfo->attributes, "{C689AAB8-8E78-11D0-8C47-00C04FC295EE}", 512);
     add_cat_name_value(catinfo->attributes, "OSAttr", 0x10010001, u"2:5.1,2:5.2,2:6.0,2:6.1,2:6.2,2:6.3,2:10.0");
     add_spc_indirect_data_context(catinfo->attributes, hash);
