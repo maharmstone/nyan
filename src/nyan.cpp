@@ -537,6 +537,7 @@ struct cat_entry {
     vector<cat_extension> extensions;
 };
 
+template<typename Hasher>
 class cat {
 public:
     cat(string_view identifier, time_t time) : identifier(identifier), time(time) {
@@ -552,7 +553,8 @@ private:
     time_t time;
 };
 
-vector<uint8_t> cat::write() {
+template<typename Hasher>
+vector<uint8_t> cat<Hasher>::write() {
     unique_ptr<MsCtlContent, decltype(&MsCtlContent_free)> c{MsCtlContent_new(), MsCtlContent_free};
 
     c->type.type = OBJ_txt2obj(szOID_CATALOG_LIST, 1);
@@ -564,8 +566,6 @@ vector<uint8_t> cat::write() {
     c->version.type = OBJ_txt2obj(szOID_CATALOG_LIST_MEMBER, 1);
     c->version.value = ASN1_TYPE_new();
     ASN1_TYPE_set(c->version.value, V_ASN1_NULL, nullptr);
-
-    using Hasher = sha1_hasher;
 
     for (const auto& ent : entries) {
         auto catinfo = CatalogInfo_new();
@@ -607,7 +607,7 @@ vector<uint8_t> cat::write() {
 }
 
 int main() {
-    cat c("C8D7FC7596D61245B5B59565B67D8573", 1710345480); // 2024-03-13 15:58:00
+    cat<sha1_hasher> c("C8D7FC7596D61245B5B59565B67D8573", 1710345480); // 2024-03-13 15:58:00
 
     c.entries.emplace_back("/home/nobackup/btrfs-package/1.9/release/amd64/mkbtrfs.exe");
     c.entries.back().extensions.emplace_back("File", 0x10010001, u"mkbtrfs.exe");
