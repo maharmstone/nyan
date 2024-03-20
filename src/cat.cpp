@@ -493,79 +493,73 @@ vector<uint8_t> cat<Hasher>::write(bool do_page_hashes) {
     ASN1_TYPE_set(c->version.value, V_ASN1_NULL, nullptr);
 
     for (const auto& ent : entries) {
-        auto catinfo = CatalogInfo_new();
+        unique_ptr<CatalogInfo, decltype(&CatalogInfo_free)> catinfo{CatalogInfo_new(), CatalogInfo_free};
+        vector<pair<uint32_t, decltype(Hasher{}.finalize())>> page_hashes;
+        decltype(Hasher{}.finalize()) hash;
+        bool is_pe = false;
+
+        int fd = open(ent.fn.string().c_str(), O_RDONLY);
+
+        if (fd == -1)
+            throw runtime_error("open of " + ent.fn.string() + " failed (errno " + to_string(errno) + ")");
+
+        struct stat st;
+
+        if (fstat(fd, &st) == -1) {
+            auto err = errno;
+            close(fd);
+            throw runtime_error("fstat of " + ent.fn.string() + " failed (errno " + to_string(err) + ")");
+        }
+
+        size_t length = st.st_size;
+
+        void* addr = mmap(nullptr, length, PROT_READ, MAP_PRIVATE, fd, 0);
+        if (addr == MAP_FAILED) {
+            auto err = errno;
+            close(fd);
+            throw runtime_error("mmap of " + ent.fn.string() + " failed (errno " + to_string(err) + ")");
+        }
 
         try {
-            vector<pair<uint32_t, decltype(Hasher{}.finalize())>> page_hashes;
-            decltype(Hasher{}.finalize()) hash;
-            bool is_pe = false;
+            auto sp = span((uint8_t*)addr, length);
 
-            int fd = open(ent.fn.string().c_str(), O_RDONLY);
+            if (sp.size() > sizeof(IMAGE_DOS_HEADER) && ((const IMAGE_DOS_HEADER*)sp.data())->e_magic == IMAGE_DOS_SIGNATURE) {
+                is_pe = true;
+                hash = authenticode<Hasher>(sp);
 
-            if (fd == -1)
-                throw runtime_error("open of " + ent.fn.string() + " failed (errno " + to_string(errno) + ")");
+                if (do_page_hashes)
+                    page_hashes = get_page_hashes<Hasher>(sp);
+            } else {
+                Hasher ctx;
 
-            struct stat st;
+                ctx.update(sp.data(), sp.size());
 
-            if (fstat(fd, &st) == -1) {
-                auto err = errno;
-                close(fd);
-                throw runtime_error("fstat of " + ent.fn.string() + " failed (errno " + to_string(err) + ")");
+                hash = ctx.finalize();
             }
-
-            size_t length = st.st_size;
-
-            void* addr = mmap(nullptr, length, PROT_READ, MAP_PRIVATE, fd, 0);
-            if (addr == MAP_FAILED) {
-                auto err = errno;
-                close(fd);
-                throw runtime_error("mmap of " + ent.fn.string() + " failed (errno " + to_string(err) + ")");
-            }
-
-            try {
-                auto sp = span((uint8_t*)addr, length);
-
-                if (sp.size() > sizeof(IMAGE_DOS_HEADER) && ((const IMAGE_DOS_HEADER*)sp.data())->e_magic == IMAGE_DOS_SIGNATURE) {
-                    is_pe = true;
-                    hash = authenticode<Hasher>(sp);
-
-                    if (do_page_hashes)
-                        page_hashes = get_page_hashes<Hasher>(sp);
-                } else {
-                    Hasher ctx;
-
-                    ctx.update(sp.data(), sp.size());
-
-                    hash = ctx.finalize();
-                }
-            } catch (...) {
-                munmap(addr, length);
-                close(fd);
-                throw;
-            }
-
+        } catch (...) {
             munmap(addr, length);
             close(fd);
-
-            auto hash_str = make_hash_string(hash);
-
-            ASN1_OCTET_STRING_set(&catinfo->digest, hash_str.data(), (int)hash_str.size());
-
-            for (const auto& ce : ent.extensions) {
-                add_cat_name_value(catinfo->attributes, ce.name, ce.flags, ce.value.c_str());
-            }
-
-            if (is_pe) {
-                add_cat_member_info(catinfo->attributes, "{C689AAB8-8E78-11D0-8C47-00C04FC295EE}", 512);
-                add_spc_indirect_data_context<Hasher>(catinfo->attributes, hash, page_hashes);
-            } else
-                add_cat_member_info(catinfo->attributes, "{DE351A42-8E59-11D0-8C47-00C04FC295EE}", 512);
-        } catch (...) {
-            CatalogInfo_free(catinfo);
             throw;
         }
 
-        sk_CatalogInfo_push(c->header_attributes, catinfo);
+        munmap(addr, length);
+        close(fd);
+
+        auto hash_str = make_hash_string(hash);
+
+        ASN1_OCTET_STRING_set(&catinfo->digest, hash_str.data(), (int)hash_str.size());
+
+        for (const auto& ce : ent.extensions) {
+            add_cat_name_value(catinfo->attributes, ce.name, ce.flags, ce.value.c_str());
+        }
+
+        if (is_pe) {
+            add_cat_member_info(catinfo->attributes, "{C689AAB8-8E78-11D0-8C47-00C04FC295EE}", 512);
+            add_spc_indirect_data_context<Hasher>(catinfo->attributes, hash, page_hashes);
+        } else
+            add_cat_member_info(catinfo->attributes, "{DE351A42-8E59-11D0-8C47-00C04FC295EE}", 512);
+
+        sk_CatalogInfo_push(c->header_attributes, catinfo.release());
     }
 
     for (const auto& ce : extensions) {
