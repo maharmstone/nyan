@@ -5,9 +5,11 @@
 #include <vector>
 #include <unordered_map>
 #include <random>
+#include <format>
 #include "cat.h"
 #include "sha1.h"
 #include "sha256.h"
+#include "config.h"
 
 using namespace std;
 
@@ -478,11 +480,28 @@ static void make_cat(const filesystem::path& fn) {
     }
 }
 
-int main() {
-    // FIXME - parse options (-?, -v, -r, -n, filename)
+int main(int argc, char* argv[]) {
+    if (argc < 2 || !strcmp(argv[1], "--help") || !strcmp(argv[1], "-?")) {
+        cerr << format(R"(Usage: {} FILE
+Creates a catalogue file from a CDF file.
+
+      --help, -?    display this help and exit
+      --version     output version information and exit
+)", argv[0]);
+
+        return 1;
+    }
+
+    if (!strcmp(argv[1], "--version")) {
+        cerr << "makecat " << PROJECT_VERSION_MAJOR << endl;
+        cerr << "Copyright (c) Mark Harmstone 2024" << endl;
+        return 1;
+    }
+
+    // FIXME - parse options (-v, -r, -n)
 
     try {
-        make_cat("/tmp/cat/cat.cdf");
+        make_cat(argv[1]);
     } catch (const exception& e) {
         cerr << "Exception: " << e.what() << endl;
     }
