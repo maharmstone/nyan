@@ -4,6 +4,8 @@
 #include <optional>
 #include <fstream>
 #include <format>
+#include <string.h>
+#include "config.h"
 
 using namespace std;
 
@@ -165,25 +167,78 @@ static void stampinf(const filesystem::path& fn, string_view ver_section,
     }
 }
 
-int main() {
-    // FIXME - parse command line
-
+int main(int argc, char* argv[]) {
     // FIXME - reading from STDIN and writing to STDOUT
     // FIXME - STAMPINF_DATE and STAMPINF_VERSION environment variables
 
-    // FIXME - -f
-    // FIXME - -s
+    if (argc < 2 || !strcmp(argv[1], "--help") || !strcmp(argv[1], "-?")) {
+        cerr << format(R"(Usage: {} -f FILE [OPTION]...
+Stamp an INF file to update its directives.
+
+      --help, -?    display this help and exit
+      --version     output version information and exit
+      -f FILE       INF file to modify
+)", argv[0]);
+
+        return 1;
+    }
+
+    if (!strcmp(argv[1], "--version")) {
+        cerr << "stampinf " << PROJECT_VERSION_MAJOR << endl;
+        cerr << "Copyright (c) Mark Harmstone 2024" << endl;
+        return 1;
+    }
+
+    optional<filesystem::path> filename;
+    string section;
+
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "-f")) {
+            if (i == argc - 1) {
+                cerr << format("{}: no filename provided to -f option\n", argv[0]);
+                return 1;
+            }
+
+            filename = argv[i + 1];
+            i++;
+        } else if (!strcmp(argv[i], "-s")) {
+            if (i == argc - 1) {
+                cerr << format("{}: no section name provided to -s option\n", argv[0]);
+                return 1;
+            }
+
+            section = argv[i + 1];
+            i++;
+        } else {
+            cerr << format("{}: unrecognized option '{}'\n", argv[0], argv[i]);
+            return 1;
+        }
+    }
+
+    if (section == "")
+        section = "version";
+    else
+        section = lcstring(section);
+
     // FIXME - -d
-    // FIXME - -a
-    // FIXME - -c
     // FIXME - -v
-    // FIXME - -k
-    // FIXME - -u
-    // FIXME - -i
-    // FIXME - -n
+
+    if (!filename.has_value()) {
+        cerr << format("{}: no INF filename specified (-f option)\n", argv[0]);
+        return 1;
+    }
+
+    // FIXME - -a (architecture)
+    // FIXME - -c (CatalogFile)
+    // FIXME - -k (KMDF version)
+    // FIXME - -u (UMDF version)
+    // FIXME - -p (Provider)
+    // FIXME - -i (ntverp.h)
+    // FIXME - -n (verbose)
+    // FIXME - -x (remove coinstaller tag)
 
     try {
-        stampinf("/tmp/cat/btrfs.inf", "version", chrono::year_month_day{2024y, chrono::March, 20d}, version{1, 2, 3, 4}); // FIXME
+        stampinf(filename.value(), section, chrono::year_month_day{2024y, chrono::March, 20d}, version{1, 2, 3, 4}); // FIXME
     } catch (const exception& e) {
         cerr << "Exception: " << e.what() << endl;
         return 1;
