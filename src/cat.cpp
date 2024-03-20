@@ -597,9 +597,14 @@ vector<uint8_t> cat<Hasher>::write(bool do_page_hashes) {
         munmap(addr, length);
         close(fd);
 
-        auto hash_str = make_hash_string(hash);
+        // digest is string for version 1, binary for version 2
+        if constexpr (is_same_v<Hasher, sha256_hasher>)
+            ASN1_OCTET_STRING_set(&catinfo->digest, hash.data(), (int)hash.size());
+        else {
+            auto hash_str = make_hash_string(hash);
 
-        ASN1_OCTET_STRING_set(&catinfo->digest, hash_str.data(), (int)hash_str.size());
+            ASN1_OCTET_STRING_set(&catinfo->digest, hash_str.data(), (int)hash_str.size());
+        }
 
         for (const auto& ce : ent.extensions) {
             add_cat_name_value(catinfo->attributes, ce.name, ce.flags, ce.value.c_str());
