@@ -4,6 +4,7 @@
 #include <charconv>
 #include <vector>
 #include <unordered_map>
+#include <random>
 #include "cat.h"
 #include "sha1.h"
 #include "sha256.h"
@@ -210,6 +211,33 @@ static void parse_attribute(vector<cat_extension>& attributes, string_view value
     attributes.emplace_back(oid, type_num, utf8_to_utf16(val));
 }
 
+// FIXME - is this actually random, or should it be a hash? (Does it matter?)
+static string create_identifier() {
+    random_device dev;
+    mt19937 rng(dev());
+    uniform_int_distribution<mt19937::result_type> dist(0, 0xffffffff);
+    string ret;
+
+    ret.reserve(32);
+
+    for (unsigned int i = 0; i < 4; i++) {
+        auto v = dist(rng);
+
+        for (unsigned int j = 0; j < 8; j++) {
+            uint8_t c = v & 0xf;
+
+            if (c >= 0xa)
+                ret += (char)(c - 0xa + 'A');
+            else
+                ret += (char)(c + '0');
+
+            v >>= 4;
+        }
+    }
+
+    return ret;
+}
+
 static void make_cat(const filesystem::path& fn) {
     ifstream f(fn);
 
@@ -408,8 +436,10 @@ static void make_cat(const filesystem::path& fn) {
 
     vector<uint8_t> v;
 
+    auto identifier = create_identifier();
+
     auto lambda = [&]<typename Hasher>() {
-        cat<Hasher> c("C8D7FC7596D61245B5B59565B67D8573", 1710345480); // 2024-03-13 15:58:00 (FIXME)
+        cat<Hasher> c(identifier, 1710345480); // 2024-03-13 15:58:00 (FIXME)
 
         for (const auto& ent : entries) {
             if (ent.first.substr(0, 6) != "<HASH>")
