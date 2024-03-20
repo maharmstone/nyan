@@ -25,6 +25,7 @@ using namespace std;
 #define szOID_CTL "1.3.6.1.4.1.311.10.1"
 #define szOID_CATALOG_LIST "1.3.6.1.4.1.311.12.1.1"
 #define szOID_CATALOG_LIST_MEMBER "1.3.6.1.4.1.311.12.1.2"
+#define szOID_CATALOG_LIST_MEMBER2 "1.3.6.1.4.1.311.12.1.3"
 #define CAT_NAMEVALUE_OBJID "1.3.6.1.4.1.311.12.2.1"
 #define CAT_MEMBERINFO_OBJID "1.3.6.1.4.1.311.12.2.2"
 #define SPC_INDIRECT_DATA_OBJID "1.3.6.1.4.1.311.2.1.4"
@@ -533,7 +534,11 @@ vector<uint8_t> cat<Hasher>::write(bool do_page_hashes) {
     ASN1_OCTET_STRING_set(c->identifier, (uint8_t*)identifier.data(), (int)identifier.size());
     ASN1_UTCTIME_set(c->time, time);
 
-    c->version.type = OBJ_txt2obj(szOID_CATALOG_LIST_MEMBER, 1);
+    if constexpr (is_same_v<Hasher, sha256_hasher>)
+        c->version.type = OBJ_txt2obj(szOID_CATALOG_LIST_MEMBER2, 1);
+    else
+        c->version.type = OBJ_txt2obj(szOID_CATALOG_LIST_MEMBER, 1);
+
     c->version.value = ASN1_TYPE_new();
     ASN1_TYPE_set(c->version.value, V_ASN1_NULL, nullptr);
 
