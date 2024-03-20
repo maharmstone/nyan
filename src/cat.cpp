@@ -482,14 +482,14 @@ static decltype(Hasher{}.finalize()) do_authenticode(const filesystem::path& fn,
     int fd = open(fn.string().c_str(), O_RDONLY);
 
     if (fd == -1)
-        throw runtime_error("open failed (errno " + to_string(errno) + ")");
+        throw runtime_error("open of " + fn.string() + " failed (errno " + to_string(errno) + ")");
 
     struct stat st;
 
     if (fstat(fd, &st) == -1) {
         auto err = errno;
         close(fd);
-        throw runtime_error("fstat failed (errno " + to_string(err) + ")");
+        throw runtime_error("fstat of " + fn.string() + " failed (errno " + to_string(err) + ")");
     }
 
     size_t length = st.st_size;
@@ -498,7 +498,7 @@ static decltype(Hasher{}.finalize()) do_authenticode(const filesystem::path& fn,
     if (addr == MAP_FAILED) {
         auto err = errno;
         close(fd);
-        throw runtime_error("mmap failed (errno " + to_string(err) + ")");
+        throw runtime_error("mmap of " + fn.string() + " failed (errno " + to_string(err) + ")");
     }
 
     decltype(Hasher{}.finalize()) digest;
