@@ -15,6 +15,10 @@
  * You should have received a copy of the GNU General Public Licence
  * along with Nyan. If not, see <https://www.gnu.org/licenses/>. */
 
+/* Thank you to Matt Graeber (https://github.com/mattifestation) and
+   Michał Trojnara (https://github.com/mtrojnar) for their reverse-engineering
+   work, which made this a lot easier. */
+
 #include <openssl/asn1.h>
 #include <openssl/asn1t.h>
 #include <openssl/err.h>
