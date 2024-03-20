@@ -400,7 +400,7 @@ static uint8_t hex_char(uint8_t val) {
 static vector<uint8_t> make_hash_string(span<const uint8_t> hash) {
     vector<uint8_t> ret;
 
-    ret.resize((hash.size() + 1) * 2 * sizeof(char16_t));
+    ret.resize(((hash.size() * 2) + 1) * sizeof(char16_t));
 
     auto ptr = ret.data();
 
