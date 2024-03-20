@@ -412,6 +412,9 @@ static void make_cat(const filesystem::path& fn) {
         cat<Hasher> c("C8D7FC7596D61245B5B59565B67D8573", 1710345480); // 2024-03-13 15:58:00 (FIXME)
 
         for (const auto& ent : entries) {
+            if (ent.first.substr(0, 6) != "<HASH>")
+                throw runtime_error("Only catalogue files with identifiers beginning <HASH> are supported.");
+
             c.entries.emplace_back(ent.second);
         }
 
