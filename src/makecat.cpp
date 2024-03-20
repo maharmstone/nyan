@@ -3,6 +3,7 @@
 #include <fstream>
 #include <charconv>
 #include <vector>
+#include <unordered_map>
 #include "cat.h"
 #include "sha1.h"
 #include "sha256.h"
@@ -144,7 +145,6 @@ static constexpr void utf8_to_utf16_range(string_view sv, T& t) noexcept {
     }
 }
 
-
 static constexpr u16string utf8_to_utf16(string_view sv) {
     if (sv.empty())
         return u"";
@@ -154,6 +154,60 @@ static constexpr u16string utf8_to_utf16(string_view sv) {
     utf8_to_utf16_range(sv, ret);
 
     return ret;
+}
+
+struct string_hash {
+    using hash_type = hash<string_view>;
+    using is_transparent = void;
+
+    size_t operator()(const char* str) const {
+        return hash_type{}(str);
+    }
+
+    size_t operator()(string_view str) const {
+        return hash_type{}(str);
+    }
+
+    size_t operator()(const string& str) const {
+        return hash_type{}(str);
+    }
+};
+
+static void parse_attribute(vector<cat_extension>& attributes, string_view value, unsigned int line_no) {
+    string_view type, oid, val;
+    unsigned int type_num;
+
+    if (auto colon = value.find(':'); colon != string::npos) {
+        type = value.substr(0, colon);
+        oid = value.substr(colon + 1);
+    } else
+        throw runtime_error("Line " + to_string(line_no) + ": ATTR value must have form {type}:{oid}:{value}.");
+
+    if (auto colon = oid.find(':'); colon != string::npos) {
+        val = oid.substr(colon + 1);
+        oid = oid.substr(0, colon);
+    } else
+        throw runtime_error("Line " + to_string(line_no) + ": ATTR value must have form {type}:{oid}:{value}.");
+
+    if (type.substr(0, 2) == "0x") {
+        auto [ptr, ec] = from_chars(type.begin() + 2, type.end(), type_num, 16);
+
+        if (ptr != type.end())
+            throw runtime_error("Line " + to_string(line_no) + ": could not parse type " + string(type) + " as integer.");
+    } else {
+        auto [ptr, ec] = from_chars(type.begin(), type.end(), type_num);
+
+        if (ptr != value.end())
+            throw runtime_error("Line " + to_string(line_no) + ": could not parse type " + string(type) + " as integer.");
+    }
+
+    if (type_num & 0x00020000)
+        throw runtime_error("Line " + to_string(line_no) + ": base64 values not yet supported.");
+
+    if (type_num & 0x00000002)
+        throw runtime_error("Line " + to_string(line_no) + ": OIDs not yet supported.");
+
+    attributes.emplace_back(oid, type_num, utf8_to_utf16(val));
 }
 
 static void make_cat(const filesystem::path& fn) {
@@ -170,7 +224,8 @@ static void make_cat(const filesystem::path& fn) {
     enum cdf_algorithm algo = cdf_algorithm::none;
     bool do_page_hashes = false;
     unsigned int encoding_type = 0x00010001; // PKCS_7_ASN_ENCODING | X509_ASN_ENCODING
-    vector<tuple<unsigned int, string, string>> attributes;
+    vector<cat_extension> attributes;
+    unordered_map<string, cat_entry, string_hash, equal_to<>> entries;
 
     while (!f.eof()) {
         string line;
@@ -273,47 +328,48 @@ static void make_cat(const filesystem::path& fn) {
 
                     if (encoding_type != 0x00010001)
                         throw runtime_error("Line " + to_string(line_no) + ": unsupported value " + string(value) + " for EncodingType.");
-                } else if (name.substr(0, 7) == "CATATTR") {
-                    string_view type, oid, val;
-                    unsigned int type_num;
-
-                    if (auto colon = value.find(':'); colon != string::npos) {
-                        type = value.substr(0, colon);
-                        oid = value.substr(colon + 1);
-                    } else
-                        throw runtime_error("Line " + to_string(line_no) + ": ATTR value must have form {type}:{oid}:{value}.");
-
-                    if (auto colon = oid.find(':'); colon != string::npos) {
-                        val = oid.substr(colon + 1);
-                        oid = oid.substr(0, colon);
-                    } else
-                        throw runtime_error("Line " + to_string(line_no) + ": ATTR value must have form {type}:{oid}:{value}.");
-
-                    if (type.substr(0, 2) == "0x") {
-                        auto [ptr, ec] = from_chars(type.begin() + 2, type.end(), type_num, 16);
-
-                        if (ptr != type.end())
-                            throw runtime_error("Line " + to_string(line_no) + ": could not parse type " + string(type) + " as integer.");
-                    } else {
-                        auto [ptr, ec] = from_chars(type.begin(), type.end(), type_num);
-
-                        if (ptr != value.end())
-                            throw runtime_error("Line " + to_string(line_no) + ": could not parse type " + string(type) + " as integer.");
-                    }
-
-                    if (type_num & 0x00020000)
-                        throw runtime_error("Line " + to_string(line_no) + ": base64 values not yet supported.");
-
-                    if (type_num & 0x00000002)
-                        throw runtime_error("Line " + to_string(line_no) + ": OIDs not yet supported.");
-
-                    attributes.emplace_back(type_num, oid, val);
-                } else
+                } else if (name.substr(0, 7) == "CATATTR")
+                    parse_attribute(attributes, value, line_no);
+                else
                     throw runtime_error("Line " + to_string(line_no) + ": unrecognized option " + string(name) + " in CatalogHeader section.");
             break;
-        }
 
-        // FIXME - CatalogFiles
+            case cdf_section::CatalogFiles:
+                if (name.size() > 8 && name.substr(name.size() - 8) == "ALTSIPID")
+                    throw runtime_error("Line " + to_string(line_no) + ": ALTSIPID not yet supported.");
+
+                if (auto attr = name.find("ATTR"); attr != string::npos) {
+                    auto [ptr, ec] = from_chars(name.begin() + attr + 4, name.end(), encoding_type, 16);
+
+                    if (ptr == name.end() && entries.count(name.substr(0, attr)) != 0) {
+                        auto it = entries.find(name.substr(0, attr));
+                        auto& ent = it->second;
+
+                        parse_attribute(ent.extensions, value, line_no);
+                        break;
+                    }
+                }
+
+                if (entries.count(name) != 0)
+                    throw runtime_error("Line " + to_string(line_no) + ": file " + string(name) + " already set.");
+
+                if constexpr (filesystem::path::preferred_separator != '\\') {
+                    string value2;
+
+                    value2.reserve(value.size());
+
+                    for (auto c : value) {
+                        if (c == '\\')
+                            value2 += filesystem::path::preferred_separator;
+                        else
+                            value2 += c;
+                    }
+
+                    entries.emplace(make_pair(name, value2));
+                } else
+                    entries.emplace(make_pair(name, value));
+            break;
+        }
     }
 
     switch (catalogue_version) {
@@ -343,7 +399,7 @@ static void make_cat(const filesystem::path& fn) {
         case 2:
             if (algo == cdf_algorithm::SHA1)
                 throw runtime_error("CatalogVersion must be 1 if HashAlgorithms is SHA1.");
-            algo = cdf_algorithm::SHA1;
+            algo = cdf_algorithm::SHA256;
         break;
     }
 
@@ -355,13 +411,11 @@ static void make_cat(const filesystem::path& fn) {
     auto lambda = [&]<typename Hasher>() {
         cat<Hasher> c("C8D7FC7596D61245B5B59565B67D8573", 1710345480); // 2024-03-13 15:58:00 (FIXME)
 
-        // c.entries.emplace_back("/home/nobackup/btrfs-package/1.9/release/amd64/mkbtrfs.exe");
-        // c.entries.back().extensions.emplace_back("File", 0x10010001, u"mkbtrfs.exe");
-        // c.entries.back().extensions.emplace_back("OSAttr", 0x10010001, u"2:5.1,2:5.2,2:6.0,2:6.1,2:6.2,2:6.3,2:10.0");
-
-        for (const auto& att : attributes) {
-            c.extensions.emplace_back(get<1>(att), get<0>(att), utf8_to_utf16(get<2>(att)));
+        for (const auto& ent : entries) {
+            c.entries.emplace_back(ent.second);
         }
+
+        c.extensions = attributes;
 
         v = c.write();
     };
