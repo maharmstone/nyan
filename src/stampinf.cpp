@@ -167,6 +167,27 @@ static void stampinf(const filesystem::path& fn, string_view ver_section,
     }
 }
 
+static bool is_digit(char c) {
+    return c >= '0' && c <= '9';
+}
+
+static optional<chrono::year_month_day> parse_date(string_view sv) {
+    if (sv.size() != 10)
+        return nullopt;
+
+    if (!is_digit(sv[0]) || !is_digit(sv[1]) || !is_digit(sv[3]) || !is_digit(sv[4]) ||
+        !is_digit(sv[6]) || !is_digit(sv[7]) || !is_digit(sv[8]) || !is_digit(sv[9]) ||
+        sv[2] != '/' || sv[5] != '/') {
+        return nullopt;
+    }
+
+    unsigned int month = ((sv[0] - '0') * 10) + sv[1] - '0';
+    unsigned int day = ((sv[3] - '0') * 10) + sv[4] - '0';
+    unsigned int year = ((sv[6] - '0') * 1000) + ((sv[7] - '0') * 100) + ((sv[8] - '0') * 10) + sv[9] - '0';
+
+    return chrono::year_month_day{chrono::year{(int)year}, chrono::month{month}, chrono::day{day}};
+}
+
 int main(int argc, char* argv[]) {
     // FIXME - reading from STDIN and writing to STDOUT
     // FIXME - STAMPINF_DATE and STAMPINF_VERSION environment variables
@@ -178,6 +199,8 @@ Stamp an INF file to update its directives.
       --help, -?    display this help and exit
       --version     output version information and exit
       -f FILE       INF file to modify
+      -d date       date to set in DriverVer (must be * for current date,
+                      or in form mm/dd/yyyy)
 )", argv[0]);
 
         return 1;
@@ -191,6 +214,7 @@ Stamp an INF file to update its directives.
 
     optional<filesystem::path> filename;
     string section;
+    optional<chrono::year_month_day> date;
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-f")) {
@@ -209,6 +233,34 @@ Stamp an INF file to update its directives.
 
             section = argv[i + 1];
             i++;
+        } else if (!strcmp(argv[i], "-d")) {
+            if (i == argc - 1) {
+                cerr << format("{}: no date provided to -d option\n", argv[0]);
+                return 1;
+            }
+
+            string_view datestr = argv[i + 1];
+
+            if (datestr == "*") {
+                struct tm t;
+
+                auto tt = chrono::system_clock::to_time_t(chrono::system_clock::now());
+
+                // note that unlike the MS version this is GMT rather than local time,
+                // which is more likely to be what you want
+                gmtime_r(&tt, &t);
+
+                date = chrono::year_month_day{chrono::year{t.tm_year + 1900}, chrono::month{(unsigned int)t.tm_mon + 1},
+                                              chrono::day{(unsigned int)t.tm_mday}};
+            } else {
+                date = parse_date(datestr);
+                if (!date.has_value()) {
+                    cerr << format("{}: could not parse date '{}' (must be of form mm/dd/yyyy)\n", argv[0], datestr);
+                    return 1;
+                }
+            }
+
+            i++;
         } else {
             cerr << format("{}: unrecognized option '{}'\n", argv[0], argv[i]);
             return 1;
@@ -220,7 +272,6 @@ Stamp an INF file to update its directives.
     else
         section = lcstring(section);
 
-    // FIXME - -d
     // FIXME - -v
 
     if (!filename.has_value()) {
@@ -238,7 +289,7 @@ Stamp an INF file to update its directives.
     // FIXME - -x (remove coinstaller tag)
 
     try {
-        stampinf(filename.value(), section, chrono::year_month_day{2024y, chrono::March, 20d}, version{1, 2, 3, 4}); // FIXME
+        stampinf(filename.value(), section, date, version{1, 2, 3, 4}); // FIXME
     } catch (const exception& e) {
         cerr << "Exception: " << e.what() << endl;
         return 1;
