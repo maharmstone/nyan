@@ -301,6 +301,12 @@ static vector<uint8_t> page_hashes_data(span<const pair<uint32_t, array<uint8_t,
     return ret;
 }
 
+struct openssl_deleter {
+    void operator()(uint8_t* ptr) {
+        OPENSSL_free(ptr);
+    }
+};
+
 template<typename Hasher>
 static void add_spc_indirect_data_context(STACK_OF(CatalogAuthAttr)* attributes,
                                           span<const uint8_t> hash, bool is_pe,
@@ -358,15 +364,39 @@ static void add_spc_indirect_data_context(STACK_OF(CatalogAuthAttr)* attributes,
             sk_ASN1_TYPE_free(set);
             ASN1_TYPE_free(os);
 
+            unique_ptr<uint8_t, openssl_deleter> spc;
+            int spc_len;
+
             {
                 uint8_t* out = nullptr;
-                int len = i2d_SpcAttributeTypeAndOptionalValue(val, &out);
+
+                spc_len = i2d_SpcAttributeTypeAndOptionalValue(val, &out);
 
                 SpcAttributeTypeAndOptionalValue_free(val);
 
-                ASN1_OCTET_STRING_set(&pid->file->moniker.serializedData, out, len);
+                spc.reset(out);
+            }
 
-                OPENSSL_free(out);
+            {
+                auto os = ASN1_TYPE_new();
+                ASN1_TYPE_set(os, V_ASN1_SEQUENCE, ASN1_STRING_new());
+                ASN1_STRING_set(os->value.set, spc.get(), spc_len);
+
+                auto set = sk_ASN1_TYPE_new_null();
+                sk_ASN1_TYPE_push(set, os);
+
+                {
+                    uint8_t* out = nullptr;
+
+                    int len = i2d_ASN1_SET_ANY(set, &out);
+
+                    ASN1_OCTET_STRING_set(&pid->file->moniker.serializedData, out, len);
+
+                    OPENSSL_free(out);
+                }
+
+                sk_ASN1_TYPE_free(set);
+                ASN1_TYPE_free(os);
             }
         }
 
