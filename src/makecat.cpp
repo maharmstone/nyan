@@ -504,5 +504,8 @@ Creates a catalogue file from a CDF file.
         make_cat(argv[1]);
     } catch (const exception& e) {
         cerr << "Exception: " << e.what() << endl;
+        return 1;
     }
+
+    return 0;
 }
