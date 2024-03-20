@@ -28,6 +28,7 @@ using namespace std;
 #define szOID_CATALOG_LIST_MEMBER2 "1.3.6.1.4.1.311.12.1.3"
 #define CAT_NAMEVALUE_OBJID "1.3.6.1.4.1.311.12.2.1"
 #define CAT_MEMBERINFO_OBJID "1.3.6.1.4.1.311.12.2.2"
+#define CAT_MEMBERINFO2_OBJID "1.3.6.1.4.1.311.12.2.3"
 #define SPC_INDIRECT_DATA_OBJID "1.3.6.1.4.1.311.2.1.4"
 #define SPC_PE_IMAGE_PAGE_HASHES_V1_OBJID "1.3.6.1.4.1.311.2.3.1"
 #define SPC_PE_IMAGE_PAGE_HASHES_V2_OBJID "1.3.6.1.4.1.311.2.3.2"
@@ -75,6 +76,24 @@ ASN1_SEQUENCE(cat_member_info) = {
 } ASN1_SEQUENCE_END(cat_member_info)
 
 IMPLEMENT_ASN1_FUNCTIONS(cat_member_info)
+
+struct cat_member_info2 {
+    int type;
+    union {
+        ASN1_NULL pe;
+        ASN1_NULL unknown1;
+        ASN1_NULL flat;
+        // FIXME - more?
+    };
+};
+
+ASN1_CHOICE(cat_member_info2) = {
+    ASN1_IMP_EMBED(cat_member_info2, pe, ASN1_NULL, 0),
+    ASN1_IMP_EMBED(cat_member_info2, unknown1, ASN1_NULL, 1),
+    ASN1_IMP_EMBED(cat_member_info2, flat, ASN1_NULL, 2)
+} ASN1_CHOICE_END(cat_member_info2)
+
+IMPLEMENT_ASN1_FUNCTIONS(cat_member_info2)
 
 struct spc_digest {
     SpcAttributeTypeAndOptionalValue algorithm;
@@ -162,13 +181,15 @@ struct cat_attr {
         cat_name_value name_value;
         cat_member_info member_info;
         spc_indirect_data_content spcidc;
+        cat_member_info2 member_info2;
     };
 };
 
 ASN1_CHOICE(cat_attr) = {
     ASN1_EMBED(cat_attr, name_value, cat_name_value),
     ASN1_EMBED(cat_attr, member_info, cat_member_info),
-    ASN1_EMBED(cat_attr, spcidc, spc_indirect_data_content)
+    ASN1_EMBED(cat_attr, spcidc, spc_indirect_data_content),
+    ASN1_EMBED(cat_attr, member_info2, cat_member_info2),
 } ASN1_CHOICE_END(cat_attr)
 
 DEFINE_STACK_OF(cat_attr)
@@ -282,6 +303,20 @@ static void add_cat_member_info(STACK_OF(CatalogAuthAttr)* attributes, string_vi
     OPENSSL_free(uni);
 
     ca->member_info.cert_version = cert_version;
+
+    sk_cat_attr_push(attr->contents, ca);
+
+    sk_CatalogAuthAttr_push(attributes, attr);
+}
+
+static void add_cat_member_info2(STACK_OF(CatalogAuthAttr)* attributes, bool is_pe) {
+    auto attr = CatalogAuthAttr_new();
+    attr->type = OBJ_txt2obj(CAT_MEMBERINFO2_OBJID, 1);
+
+    auto ca = cat_attr_new();
+    ca->type = 3;
+
+    ca->member_info2.type = is_pe ? 0 : 2;
 
     sk_cat_attr_push(attr->contents, ca);
 
@@ -622,10 +657,14 @@ vector<uint8_t> cat<Hasher>::write(bool do_page_hashes) {
             add_cat_name_value(catinfo->attributes, ce.name, ce.flags, ce.value.c_str());
         }
 
-        if (is_pe)
-            add_cat_member_info(catinfo->attributes, "{C689AAB8-8E78-11D0-8C47-00C04FC295EE}", 512);
-        else
-            add_cat_member_info(catinfo->attributes, "{DE351A42-8E59-11D0-8C47-00C04FC295EE}", 512);
+        if constexpr (is_same_v<Hasher, sha256_hasher>)
+            add_cat_member_info2(catinfo->attributes, is_pe);
+        else {
+            if (is_pe)
+                add_cat_member_info(catinfo->attributes, "{C689AAB8-8E78-11D0-8C47-00C04FC295EE}", 512);
+            else
+                add_cat_member_info(catinfo->attributes, "{DE351A42-8E59-11D0-8C47-00C04FC295EE}", 512);
+        }
 
         add_spc_indirect_data_context<Hasher>(catinfo->attributes, hash, is_pe, page_hashes);
 
@@ -636,6 +675,8 @@ vector<uint8_t> cat<Hasher>::write(bool do_page_hashes) {
             catinfo.reset(CatalogInfo_new());
 
             ASN1_OCTET_STRING_set(&catinfo->digest, sha1_hash.data(), (int)sha1_hash.size());
+
+            add_cat_member_info2(catinfo->attributes, is_pe);
 
             for (const auto& ce : ent.extensions) {
                 // FIXME - not if 0x01000000 flag set
