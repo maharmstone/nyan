@@ -31,6 +31,7 @@ using namespace std;
 #define SPC_PE_IMAGE_PAGE_HASHES_V1_OBJID "1.3.6.1.4.1.311.2.3.1"
 #define SPC_PE_IMAGE_PAGE_HASHES_V2_OBJID "1.3.6.1.4.1.311.2.3.2"
 #define SPC_PE_IMAGE_DATA_OBJID "1.3.6.1.4.1.311.2.1.15"
+#define SPC_CAB_DATA_OBJID "1.3.6.1.4.1.311.2.1.25"
 #define szOID_OIWSEC_sha1 "1.3.14.3.2.26"
 #define szOID_NIST_sha256 "2.16.840.1.101.3.4.2.1"
 
@@ -302,7 +303,7 @@ static vector<uint8_t> page_hashes_data(span<const pair<uint32_t, array<uint8_t,
 
 template<typename Hasher>
 static void add_spc_indirect_data_context(STACK_OF(CatalogAuthAttr)* attributes,
-                                          span<const uint8_t> hash,
+                                          span<const uint8_t> hash, bool is_pe,
                                           span<const pair<uint32_t, decltype(Hasher{}.finalize())>> page_hashes) {
     auto attr = CatalogAuthAttr_new();
     attr->type = OBJ_txt2obj(SPC_INDIRECT_DATA_OBJID, 1);
@@ -312,69 +313,82 @@ static void add_spc_indirect_data_context(STACK_OF(CatalogAuthAttr)* attributes,
 
     auto& spcidc = ca->spcidc;
 
-    auto pid = SpcPeImageData_new();
-    ASN1_BIT_STRING_set_bit(&pid->flags, 0, 1);
-    ASN1_BIT_STRING_set_bit(&pid->flags, 1, 0);
-    ASN1_BIT_STRING_set_bit(&pid->flags, 2, 1);
-    pid->file = SpcLink_new();
+    if (is_pe) {
+        auto pid = SpcPeImageData_new();
+        ASN1_BIT_STRING_set_bit(&pid->flags, 0, 1);
+        ASN1_BIT_STRING_set_bit(&pid->flags, 1, 0);
+        ASN1_BIT_STRING_set_bit(&pid->flags, 2, 1);
+        pid->file = SpcLink_new();
 
-    if (page_hashes.empty())
-        pid->file->type = 2;
-    else {
-        pid->file->type = 1;
+        if (page_hashes.empty())
+            pid->file->type = 2;
+        else {
+            pid->file->type = 1;
 
-        ASN1_OCTET_STRING_set(&pid->file->moniker.classId, page_hashes_guid, sizeof(page_hashes_guid));
+            ASN1_OCTET_STRING_set(&pid->file->moniker.classId, page_hashes_guid, sizeof(page_hashes_guid));
 
-        auto val = SpcAttributeTypeAndOptionalValue_new();
+            auto val = SpcAttributeTypeAndOptionalValue_new();
 
-        if constexpr (is_same_v<Hasher, sha1_hasher>)
-            val->type = OBJ_txt2obj(SPC_PE_IMAGE_PAGE_HASHES_V1_OBJID, 1);
-        else if constexpr (is_same_v<Hasher, sha256_hasher>)
-            val->type = OBJ_txt2obj(SPC_PE_IMAGE_PAGE_HASHES_V2_OBJID, 1);
+            if constexpr (is_same_v<Hasher, sha1_hasher>)
+                val->type = OBJ_txt2obj(SPC_PE_IMAGE_PAGE_HASHES_V1_OBJID, 1);
+            else if constexpr (is_same_v<Hasher, sha256_hasher>)
+                val->type = OBJ_txt2obj(SPC_PE_IMAGE_PAGE_HASHES_V2_OBJID, 1);
 
-        auto str = page_hashes_data(page_hashes);
+            auto str = page_hashes_data(page_hashes);
 
-        auto os = ASN1_TYPE_new();
-        ASN1_TYPE_set(os, V_ASN1_OCTET_STRING, ASN1_OCTET_STRING_new());
-        ASN1_OCTET_STRING_set(os->value.octet_string, str.data(), (int)str.size());
+            auto os = ASN1_TYPE_new();
+            ASN1_TYPE_set(os, V_ASN1_OCTET_STRING, ASN1_OCTET_STRING_new());
+            ASN1_OCTET_STRING_set(os->value.octet_string, str.data(), (int)str.size());
 
-        auto set = sk_ASN1_TYPE_new_null();
-        sk_ASN1_TYPE_push(set, os);
+            auto set = sk_ASN1_TYPE_new_null();
+            sk_ASN1_TYPE_push(set, os);
 
-        {
-            uint8_t* out = nullptr;
+            {
+                uint8_t* out = nullptr;
 
-            int len = i2d_ASN1_SET_ANY(set, &out);
+                int len = i2d_ASN1_SET_ANY(set, &out);
 
-            val->value = ASN1_TYPE_new();
-            ASN1_TYPE_set(val->value, V_ASN1_SET, ASN1_STRING_new());
-            ASN1_STRING_set(val->value->value.set, out, len);
+                val->value = ASN1_TYPE_new();
+                ASN1_TYPE_set(val->value, V_ASN1_SET, ASN1_STRING_new());
+                ASN1_STRING_set(val->value->value.set, out, len);
 
-            OPENSSL_free(out);
+                OPENSSL_free(out);
+            }
+
+            sk_ASN1_TYPE_free(set);
+            ASN1_TYPE_free(os);
+
+            {
+                uint8_t* out = nullptr;
+                int len = i2d_SpcAttributeTypeAndOptionalValue(val, &out);
+
+                SpcAttributeTypeAndOptionalValue_free(val);
+
+                ASN1_OCTET_STRING_set(&pid->file->moniker.serializedData, out, len);
+
+                OPENSSL_free(out);
+            }
         }
 
-        sk_ASN1_TYPE_free(set);
-        ASN1_TYPE_free(os);
+        auto oct = ASN1_item_pack(pid, SpcPeImageData_it(), nullptr);
 
-        {
-            uint8_t* out = nullptr;
-            int len = i2d_SpcAttributeTypeAndOptionalValue(val, &out);
+        SpcPeImageData_free(pid);
 
-            SpcAttributeTypeAndOptionalValue_free(val);
+        spcidc.data.type = OBJ_txt2obj(SPC_PE_IMAGE_DATA_OBJID, 1);
+        spcidc.data.value = ASN1_TYPE_new();
+        ASN1_TYPE_set(spcidc.data.value, V_ASN1_SEQUENCE, oct);
+    } else {
+        auto link = SpcLink_new();
+        link->type = 2;
 
-            ASN1_OCTET_STRING_set(&pid->file->moniker.serializedData, out, len);
+        auto oct = ASN1_item_pack(link, SpcLink_it(), nullptr);
 
-            OPENSSL_free(out);
-        }
+        SpcLink_free(link);
+
+        spcidc.data.type = OBJ_txt2obj(SPC_CAB_DATA_OBJID, 1);
+        spcidc.data.value = ASN1_TYPE_new();
+        ASN1_TYPE_set(spcidc.data.value, V_ASN1_SEQUENCE, oct);
     }
-
-    auto oct = ASN1_item_pack(pid, SpcPeImageData_it(), nullptr);
-
-    SpcPeImageData_free(pid);
-
-    spcidc.data.type = OBJ_txt2obj(SPC_PE_IMAGE_DATA_OBJID, 1);
-    spcidc.data.value = ASN1_TYPE_new();
-    ASN1_TYPE_set(spcidc.data.value, V_ASN1_SEQUENCE, oct);
 
     if constexpr (is_same_v<Hasher, sha1_hasher>)
         spcidc.digest.algorithm.type = OBJ_txt2obj(szOID_OIWSEC_sha1, 1);
@@ -556,11 +570,12 @@ vector<uint8_t> cat<Hasher>::write(bool do_page_hashes) {
             add_cat_name_value(catinfo->attributes, ce.name, ce.flags, ce.value.c_str());
         }
 
-        if (is_pe) {
+        if (is_pe)
             add_cat_member_info(catinfo->attributes, "{C689AAB8-8E78-11D0-8C47-00C04FC295EE}", 512);
-            add_spc_indirect_data_context<Hasher>(catinfo->attributes, hash, page_hashes);
-        } else
+        else
             add_cat_member_info(catinfo->attributes, "{DE351A42-8E59-11D0-8C47-00C04FC295EE}", 512);
+
+        add_spc_indirect_data_context<Hasher>(catinfo->attributes, hash, is_pe, page_hashes);
 
         files.emplace_back(catinfo.release(), CatalogInfo_free);
     }
