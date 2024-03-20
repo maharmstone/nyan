@@ -27,7 +27,11 @@ an INF file. See https://learn.microsoft.com/en-us/windows-hardware/drivers/devt
 for documentation.
 
 ## To do
+
 * Windows version
 * inf2cat
 * cat2cdf
 * signtool?
+
+## Release history
+* 2024-03-20: Initial release
