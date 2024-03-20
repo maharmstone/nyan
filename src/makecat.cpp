@@ -453,8 +453,6 @@ static void make_cat(const filesystem::path& fn) {
 
         out.write((char*)v.data(), v.size());
     }
-
-    cout << "Succeeded" << endl;
 }
 
 int main() {
