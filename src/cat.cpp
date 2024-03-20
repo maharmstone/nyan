@@ -478,47 +478,6 @@ static vector<uint8_t> do_pkcs(MsCtlContent* c) {
 }
 
 template<typename Hasher>
-static decltype(Hasher{}.finalize()) do_authenticode(const filesystem::path& fn, vector<pair<uint32_t, decltype(Hasher{}.finalize())>>& page_hashes) {
-    int fd = open(fn.string().c_str(), O_RDONLY);
-
-    if (fd == -1)
-        throw runtime_error("open of " + fn.string() + " failed (errno " + to_string(errno) + ")");
-
-    struct stat st;
-
-    if (fstat(fd, &st) == -1) {
-        auto err = errno;
-        close(fd);
-        throw runtime_error("fstat of " + fn.string() + " failed (errno " + to_string(err) + ")");
-    }
-
-    size_t length = st.st_size;
-
-    void* addr = mmap(nullptr, length, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (addr == MAP_FAILED) {
-        auto err = errno;
-        close(fd);
-        throw runtime_error("mmap of " + fn.string() + " failed (errno " + to_string(err) + ")");
-    }
-
-    decltype(Hasher{}.finalize()) digest;
-
-    try {
-        digest = authenticode<Hasher>(span((uint8_t*)addr, length));
-        page_hashes = get_page_hashes<Hasher>(span((uint8_t*)addr, length));
-    } catch (...) {
-        munmap(addr, length);
-        close(fd);
-        throw;
-    }
-
-    munmap(addr, length);
-    close(fd);
-
-    return digest;
-}
-
-template<typename Hasher>
 vector<uint8_t> cat<Hasher>::write() {
     unique_ptr<MsCtlContent, decltype(&MsCtlContent_free)> c{MsCtlContent_new(), MsCtlContent_free};
 
@@ -537,11 +496,45 @@ vector<uint8_t> cat<Hasher>::write() {
 
         try {
             vector<pair<uint32_t, decltype(Hasher{}.finalize())>> page_hashes;
+            decltype(Hasher{}.finalize()) hash;
+
+            int fd = open(ent.fn.string().c_str(), O_RDONLY);
+
+            if (fd == -1)
+                throw runtime_error("open of " + ent.fn.string() + " failed (errno " + to_string(errno) + ")");
+
+            struct stat st;
+
+            if (fstat(fd, &st) == -1) {
+                auto err = errno;
+                close(fd);
+                throw runtime_error("fstat of " + ent.fn.string() + " failed (errno " + to_string(err) + ")");
+            }
+
+            size_t length = st.st_size;
+
+            void* addr = mmap(nullptr, length, PROT_READ, MAP_PRIVATE, fd, 0);
+            if (addr == MAP_FAILED) {
+                auto err = errno;
+                close(fd);
+                throw runtime_error("mmap of " + ent.fn.string() + " failed (errno " + to_string(err) + ")");
+            }
+
+            try {
+                hash = authenticode<Hasher>(span((uint8_t*)addr, length));
+                page_hashes = get_page_hashes<Hasher>(span((uint8_t*)addr, length));
+            } catch (...) {
+                munmap(addr, length);
+                close(fd);
+                throw;
+            }
+
+            munmap(addr, length);
+            close(fd);
 
             // FIXME - detect if PE file
 
             // FIXME - normal hash if not PE
-            auto hash = do_authenticode<Hasher>(ent.fn, page_hashes);
 
             auto hash_str = make_hash_string(hash);
 
