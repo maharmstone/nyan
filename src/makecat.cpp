@@ -439,7 +439,7 @@ static void make_cat(const filesystem::path& fn) {
     auto identifier = create_identifier();
 
     auto lambda = [&]<typename Hasher>() {
-        cat<Hasher> c(identifier, 1710345480); // 2024-03-13 15:58:00 (FIXME)
+        cat<Hasher> c(identifier, time(nullptr));
 
         for (const auto& ent : entries) {
             if (ent.first.substr(0, 6) != "<HASH>")
