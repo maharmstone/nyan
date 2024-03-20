@@ -481,6 +481,8 @@ static void make_cat(const filesystem::path& fn) {
 }
 
 int main(int argc, char* argv[]) {
+    // FIXME - reading from STDIN and writing to STDOUT
+
     if (argc < 2 || !strcmp(argv[1], "--help") || !strcmp(argv[1], "-?")) {
         cerr << format(R"(Usage: {} FILE
 Creates a catalogue file from a CDF file.
