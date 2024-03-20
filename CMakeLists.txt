@@ -46,7 +46,13 @@ endif()
 
 # ----------------------------
 
-add_executable(makecat src/makecat.cpp)
+add_executable(makecat src/makecat.cpp
+	src/cat.cpp
+	src/authenticode.cpp
+	src/sha1.cpp
+	src/sha256.cpp)
+
+target_link_libraries(makecat OpenSSL::Crypto)
 
 if(NOT MSVC)
 	target_compile_options(makecat PUBLIC -Wall -Werror=cast-function-type -Wno-expansion-to-defined -Wunused-parameter -Wtype-limits -Wextra -Wconversion)

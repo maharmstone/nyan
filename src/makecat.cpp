@@ -3,6 +3,9 @@
 #include <fstream>
 #include <charconv>
 #include <vector>
+#include "cat.h"
+#include "sha1.h"
+#include "sha256.h"
 
 using namespace std;
 
@@ -17,6 +20,141 @@ enum class cdf_algorithm {
     SHA1,
     SHA256
 };
+
+static constexpr size_t utf8_to_utf16_len(string_view sv) noexcept {
+    size_t ret = 0;
+
+    while (!sv.empty()) {
+        if ((uint8_t)sv[0] < 0x80) {
+            ret++;
+            sv = sv.substr(1);
+        } else if (((uint8_t)sv[0] & 0xe0) == 0xc0 && (uint8_t)sv.length() >= 2 && ((uint8_t)sv[1] & 0xc0) == 0x80) {
+            ret++;
+            sv = sv.substr(2);
+        } else if (((uint8_t)sv[0] & 0xf0) == 0xe0 && (uint8_t)sv.length() >= 3 && ((uint8_t)sv[1] & 0xc0) == 0x80 && ((uint8_t)sv[2] & 0xc0) == 0x80) {
+            ret++;
+            sv = sv.substr(3);
+        } else if (((uint8_t)sv[0] & 0xf8) == 0xf0 && (uint8_t)sv.length() >= 4 && ((uint8_t)sv[1] & 0xc0) == 0x80 && ((uint8_t)sv[2] & 0xc0) == 0x80 && ((uint8_t)sv[3] & 0xc0) == 0x80) {
+            char32_t cp = (char32_t)(((uint8_t)sv[0] & 0x7) << 18) | (char32_t)(((uint8_t)sv[1] & 0x3f) << 12) | (char32_t)(((uint8_t)sv[2] & 0x3f) << 6) | (char32_t)((uint8_t)sv[3] & 0x3f);
+
+            if (cp > 0x10ffff) {
+                ret++;
+                sv = sv.substr(4);
+                continue;
+            }
+
+            ret += 2;
+            sv = sv.substr(4);
+        } else {
+            ret++;
+            sv = sv.substr(1);
+        }
+    }
+
+    return ret;
+}
+
+template<typename T>
+requires (ranges::output_range<T, char16_t> && is_same_v<ranges::range_value_t<T>, char16_t>) ||
+    (sizeof(wchar_t) == 2 && ranges::output_range<T, wchar_t> && is_same_v<ranges::range_value_t<T>, wchar_t>)
+static constexpr void utf8_to_utf16_range(string_view sv, T& t) noexcept {
+    auto ptr = t.begin();
+
+    if (ptr == t.end())
+        return;
+
+    while (!sv.empty()) {
+        if ((uint8_t)sv[0] < 0x80) {
+            *ptr = (uint8_t)sv[0];
+            ptr++;
+
+            if (ptr == t.end())
+                return;
+
+            sv = sv.substr(1);
+        } else if (((uint8_t)sv[0] & 0xe0) == 0xc0 && (uint8_t)sv.length() >= 2 && ((uint8_t)sv[1] & 0xc0) == 0x80) {
+            char16_t cp = (char16_t)(((uint8_t)sv[0] & 0x1f) << 6) | (char16_t)((uint8_t)sv[1] & 0x3f);
+
+            *ptr = cp;
+            ptr++;
+
+            if (ptr == t.end())
+                return;
+
+            sv = sv.substr(2);
+        } else if (((uint8_t)sv[0] & 0xf0) == 0xe0 && (uint8_t)sv.length() >= 3 && ((uint8_t)sv[1] & 0xc0) == 0x80 && ((uint8_t)sv[2] & 0xc0) == 0x80) {
+            char16_t cp = (char16_t)(((uint8_t)sv[0] & 0xf) << 12) | (char16_t)(((uint8_t)sv[1] & 0x3f) << 6) | (char16_t)((uint8_t)sv[2] & 0x3f);
+
+            if (cp >= 0xd800 && cp <= 0xdfff) {
+                *ptr = 0xfffd;
+                ptr++;
+
+                if (ptr == t.end())
+                    return;
+
+                sv = sv.substr(3);
+                continue;
+            }
+
+            *ptr = cp;
+            ptr++;
+
+            if (ptr == t.end())
+                return;
+
+            sv = sv.substr(3);
+        } else if (((uint8_t)sv[0] & 0xf8) == 0xf0 && (uint8_t)sv.length() >= 4 && ((uint8_t)sv[1] & 0xc0) == 0x80 && ((uint8_t)sv[2] & 0xc0) == 0x80 && ((uint8_t)sv[3] & 0xc0) == 0x80) {
+            char32_t cp = (char32_t)(((uint8_t)sv[0] & 0x7) << 18) | (char32_t)(((uint8_t)sv[1] & 0x3f) << 12) | (char32_t)(((uint8_t)sv[2] & 0x3f) << 6) | (char32_t)((uint8_t)sv[3] & 0x3f);
+
+            if (cp > 0x10ffff) {
+                *ptr = 0xfffd;
+                ptr++;
+
+                if (ptr == t.end())
+                    return;
+
+                sv = sv.substr(4);
+                continue;
+            }
+
+            cp -= 0x10000;
+
+            *ptr = (char16_t)(0xd800 | (cp >> 10));
+            ptr++;
+
+            if (ptr == t.end())
+                return;
+
+            *ptr = (char16_t)(0xdc00 | (cp & 0x3ff));
+            ptr++;
+
+            if (ptr == t.end())
+                return;
+
+            sv = sv.substr(4);
+        } else {
+            *ptr = 0xfffd;
+            ptr++;
+
+            if (ptr == t.end())
+                return;
+
+            sv = sv.substr(1);
+        }
+    }
+}
+
+
+static constexpr u16string utf8_to_utf16(string_view sv) {
+    if (sv.empty())
+        return u"";
+
+    u16string ret(utf8_to_utf16_len(sv), 0);
+
+    utf8_to_utf16_range(sv, ret);
+
+    return ret;
+}
 
 static void make_cat(const filesystem::path& fn) {
     ifstream f(fn);
@@ -177,11 +315,93 @@ static void make_cat(const filesystem::path& fn) {
 
         // FIXME - CatalogFiles
     }
-    // FIXME
+
+    switch (catalogue_version) {
+        case 0:
+            switch (algo) {
+                case cdf_algorithm::SHA1:
+                    catalogue_version = 1;
+                break;
+
+                case cdf_algorithm::SHA256:
+                    catalogue_version = 2;
+                break;
+
+                case cdf_algorithm::none:
+                    catalogue_version = 1;
+                    algo = cdf_algorithm::SHA1;
+                break;
+            }
+        break;
+
+        case 1:
+            if (algo == cdf_algorithm::SHA256)
+                throw runtime_error("CatalogVersion must be 2 if HashAlgorithms is SHA256.");
+            algo = cdf_algorithm::SHA1;
+        break;
+
+        case 2:
+            if (algo == cdf_algorithm::SHA1)
+                throw runtime_error("CatalogVersion must be 1 if HashAlgorithms is SHA1.");
+            algo = cdf_algorithm::SHA1;
+        break;
+    }
+
+    if (cat_name.empty())
+        throw runtime_error("No value specified for Name.");
+
+    vector<uint8_t> v;
+
+    auto lambda = [&]<typename Hasher>() {
+        cat<Hasher> c("C8D7FC7596D61245B5B59565B67D8573", 1710345480); // 2024-03-13 15:58:00 (FIXME)
+
+        // c.entries.emplace_back("/home/nobackup/btrfs-package/1.9/release/amd64/mkbtrfs.exe");
+        // c.entries.back().extensions.emplace_back("File", 0x10010001, u"mkbtrfs.exe");
+        // c.entries.back().extensions.emplace_back("OSAttr", 0x10010001, u"2:5.1,2:5.2,2:6.0,2:6.1,2:6.2,2:6.3,2:10.0");
+
+        for (const auto& att : attributes) {
+            c.extensions.emplace_back(get<1>(att), get<0>(att), utf8_to_utf16(get<2>(att)));
+        }
+
+        v = c.write();
+    };
+
+    switch (algo) {
+        case cdf_algorithm::SHA1:
+            lambda.template operator()<sha1_hasher>();
+        break;
+
+        case cdf_algorithm::SHA256:
+            lambda.template operator()<sha256_hasher>();
+        break;
+
+        default:
+        break;
+    }
+
+    filesystem::path outfn;
+
+    // FIXME - Microsoft makecat creates result_dir if it doesn't already exist
+    if (!result_dir.empty())
+        outfn = filesystem::path{result_dir} / cat_name;
+    else
+        outfn = cat_name;
+
+    {
+        ofstream out(outfn, ios::binary);
+
+        // FIXME - better error messages
+        if (!out.is_open())
+            throw runtime_error("Could not open " + outfn.string() + " for writing.");
+
+        out.write((char*)v.data(), v.size());
+    }
+
+    cout << "Succeeded" << endl;
 }
 
 int main() {
-    // FIXME
+    // FIXME - parse options (-?, -v, -r, -n, filename)
 
     try {
         make_cat("/tmp/cat/cat.cdf");
