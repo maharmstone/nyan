@@ -142,6 +142,23 @@ static void stampinf(const filesystem::path& fn, string_view ver_section,
         lines.emplace_back(line);
     }
 
+    if (!changed_driverver && date.has_value() && section == ver_section) {
+        vector<string> ws_lines;
+
+        while (!lines.empty() && is_whitespace(lines.back())) {
+            ws_lines.emplace_back(lines.back());
+            lines.pop_back();
+        }
+
+        lines.emplace_back(format("DriverVer = {:02}/{:02}/{:04},{}.{}.{}.{}", (unsigned int)date->month(), (unsigned int)date->day(), (int)date->year(),
+                                  ver->major, ver->minor, ver->build, ver->revision));
+
+        while (!ws_lines.empty()) {
+            lines.push_back(ws_lines.back());
+            ws_lines.pop_back();
+        }
+    }
+
     // FIXME - write to file
     for (const auto& l : lines) {
         cout << l << endl;
