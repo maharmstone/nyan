@@ -275,7 +275,7 @@ static void add_cat_member_info(STACK_OF(CatalogAuthAttr)* attributes, string_vi
     auto uni = OPENSSL_utf82uni(guid.data(), (int)guid.size(), nullptr, &unilen);
 
     ca->member_info.guid = ASN1_STRING_new();
-    ASN1_STRING_set(ca->member_info.guid, uni, unilen);
+    ASN1_STRING_set(ca->member_info.guid, uni, unilen - 2); // don't include trailing null
 
     OPENSSL_free(uni);
 
