@@ -42,5 +42,16 @@ endif()
 
 # ----------------------------
 
+add_executable(stampinf src/stampinf.cpp)
+
+if(NOT MSVC)
+	target_compile_options(stampinf PUBLIC -Wall -Werror=cast-function-type -Wno-expansion-to-defined -Wunused-parameter -Wtype-limits -Wextra -Wconversion)
+else()
+	target_link_options(stampinf PUBLIC /MANIFEST:NO)
+endif()
+
+# ----------------------------
+
 install(TARGETS authenticode DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(TARGETS makecat DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS stampinf DESTINATION ${CMAKE_INSTALL_BINDIR})
