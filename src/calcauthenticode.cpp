@@ -63,7 +63,7 @@ enum class hash_type {
 
 int main(int argc, char* argv[]) {
     if (argc < 2 || !strcmp(argv[1], "--help")) {
-        cerr << format(R"(Usage: {} [--sha1 | --sha256] [FILE]...
+        cerr << format(R"(Usage: {} [--sha1 | --sha256] FILE...
 Print the Authenticode hash of PE files.
 
       --sha1        output SHA1 hash
