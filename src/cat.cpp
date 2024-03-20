@@ -548,6 +548,7 @@ vector<uint8_t> cat<Hasher>::write(bool do_page_hashes) {
         unique_ptr<CatalogInfo, decltype(&CatalogInfo_free)> catinfo{CatalogInfo_new(), CatalogInfo_free};
         vector<pair<uint32_t, decltype(Hasher{}.finalize())>> page_hashes;
         decltype(Hasher{}.finalize()) hash;
+        decltype(sha1_hasher{}.finalize()) sha1_hash;
         bool is_pe = false;
 
         int fd = open(ent.fn.string().c_str(), O_RDONLY);
@@ -579,6 +580,9 @@ vector<uint8_t> cat<Hasher>::write(bool do_page_hashes) {
                 is_pe = true;
                 hash = authenticode<Hasher>(sp);
 
+                if constexpr (is_same_v<Hasher, sha256_hasher>)
+                    sha1_hash = authenticode<sha1_hasher>(sp);
+
                 if (do_page_hashes)
                     page_hashes = get_page_hashes<Hasher>(sp);
             } else {
@@ -587,6 +591,14 @@ vector<uint8_t> cat<Hasher>::write(bool do_page_hashes) {
                 ctx.update(sp.data(), sp.size());
 
                 hash = ctx.finalize();
+
+                if constexpr (is_same_v<Hasher, sha256_hasher>) {
+                    sha1_hasher ctx2;
+
+                    ctx2.update(sp.data(), sp.size());
+
+                    sha1_hash = ctx2.finalize();
+                }
             }
         } catch (...) {
             munmap(addr, length);
@@ -618,6 +630,20 @@ vector<uint8_t> cat<Hasher>::write(bool do_page_hashes) {
         add_spc_indirect_data_context<Hasher>(catinfo->attributes, hash, is_pe, page_hashes);
 
         files.emplace_back(catinfo.release(), CatalogInfo_free);
+
+        // version 2 files also have SHA1 entries
+        if constexpr (is_same_v<Hasher, sha256_hasher>) {
+            catinfo.reset(CatalogInfo_new());
+
+            ASN1_OCTET_STRING_set(&catinfo->digest, sha1_hash.data(), (int)sha1_hash.size());
+
+            for (const auto& ce : ent.extensions) {
+                // FIXME - not if 0x01000000 flag set
+                add_cat_name_value(catinfo->attributes, ce.name, ce.flags, ce.value.c_str());
+            }
+
+            files.emplace_back(catinfo.release(), CatalogInfo_free);
+        }
     }
 
     // follow Microsoft in sorting files by hash (even though they're in a SET)
