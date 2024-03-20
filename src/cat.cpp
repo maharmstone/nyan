@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include <span>
+#include <algorithm>
 #include <filesystem>
 #include "sha1.h"
 #include "sha256.h"
@@ -492,6 +493,8 @@ vector<uint8_t> cat<Hasher>::write(bool do_page_hashes) {
     c->version.value = ASN1_TYPE_new();
     ASN1_TYPE_set(c->version.value, V_ASN1_NULL, nullptr);
 
+    vector<unique_ptr<CatalogInfo, decltype(&CatalogInfo_free)>> files;
+
     for (const auto& ent : entries) {
         unique_ptr<CatalogInfo, decltype(&CatalogInfo_free)> catinfo{CatalogInfo_new(), CatalogInfo_free};
         vector<pair<uint32_t, decltype(Hasher{}.finalize())>> page_hashes;
@@ -559,6 +562,19 @@ vector<uint8_t> cat<Hasher>::write(bool do_page_hashes) {
         } else
             add_cat_member_info(catinfo->attributes, "{DE351A42-8E59-11D0-8C47-00C04FC295EE}", 512);
 
+        files.emplace_back(catinfo.release(), CatalogInfo_free);
+    }
+
+    // follow Microsoft in sorting files by hash (even though they're in a SET)
+
+    sort(files.begin(), files.end(), [](const auto& a, const auto& b) {
+        string_view digest1((char*)a->digest.data, a->digest.length);
+        string_view digest2((char*)b->digest.data, b->digest.length);
+
+        return digest1 < digest2;
+    });
+
+    for (auto& catinfo : files) {
         sk_CatalogInfo_push(c->header_attributes, catinfo.release());
     }
 
