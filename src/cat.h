@@ -28,7 +28,7 @@ public:
     cat(std::string_view identifier, time_t time) : identifier(identifier), time(time) {
     }
 
-    std::vector<uint8_t> write();
+    std::vector<uint8_t> write(bool do_page_hashes);
 
     std::vector<cat_entry> entries;
     std::vector<cat_extension> extensions;

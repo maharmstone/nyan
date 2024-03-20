@@ -16,7 +16,7 @@ int main() {
     c.extensions.emplace_back("HWID2", 0x10010001, u"root\\btrfs");
     c.extensions.emplace_back("HWID1", 0x10010001, u"btrfsvolume");
 
-    auto v = c.write();
+    auto v = c.write(true);
 
     cout << "len = " << v.size() << endl;
 

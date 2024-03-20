@@ -420,7 +420,7 @@ static void make_cat(const filesystem::path& fn) {
 
         c.extensions = attributes;
 
-        v = c.write();
+        v = c.write(do_page_hashes);
     };
 
     switch (algo) {

@@ -479,7 +479,7 @@ static vector<uint8_t> do_pkcs(MsCtlContent* c) {
 }
 
 template<typename Hasher>
-vector<uint8_t> cat<Hasher>::write() {
+vector<uint8_t> cat<Hasher>::write(bool do_page_hashes) {
     unique_ptr<MsCtlContent, decltype(&MsCtlContent_free)> c{MsCtlContent_new(), MsCtlContent_free};
 
     c->type.type = OBJ_txt2obj(szOID_CATALOG_LIST, 1);
@@ -528,7 +528,9 @@ vector<uint8_t> cat<Hasher>::write() {
                 if (sp.size() > sizeof(IMAGE_DOS_HEADER) && ((const IMAGE_DOS_HEADER*)sp.data())->e_magic == IMAGE_DOS_SIGNATURE) {
                     is_pe = true;
                     hash = authenticode<Hasher>(sp);
-                    page_hashes = get_page_hashes<Hasher>(sp);
+
+                    if (do_page_hashes)
+                        page_hashes = get_page_hashes<Hasher>(sp);
                 } else {
                     Hasher ctx;
 
