@@ -3,6 +3,7 @@
 #include <string>
 #include <filesystem>
 #include <vector>
+#include <span>
 
 struct cat_extension {
     cat_extension(std::string_view name, uint32_t flags, std::u16string_view value) :
@@ -25,7 +26,8 @@ struct cat_entry {
 template<typename Hasher>
 class cat {
 public:
-    cat(std::string_view identifier, time_t time) : identifier(identifier), time(time) {
+    cat(std::span<const uint8_t> identifier, time_t time) : time(time) {
+        this->identifier.assign(identifier.begin(), identifier.end());
     }
 
     std::vector<uint8_t> write(bool do_page_hashes);
@@ -34,6 +36,6 @@ public:
     std::vector<cat_extension> extensions;
 
 private:
-    std::string identifier;
+    std::vector<uint8_t> identifier;
     time_t time;
 };

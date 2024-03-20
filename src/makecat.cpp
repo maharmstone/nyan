@@ -212,27 +212,20 @@ static void parse_attribute(vector<cat_extension>& attributes, string_view value
 }
 
 // FIXME - is this actually random, or should it be a hash? (Does it matter?)
-static string create_identifier() {
+static vector<uint8_t> create_identifier() {
     random_device dev;
     mt19937 rng(dev());
     uniform_int_distribution<mt19937::result_type> dist(0, 0xffffffff);
-    string ret;
+    vector<uint8_t> ret;
 
-    ret.reserve(32);
+    ret.reserve(16);
 
     for (unsigned int i = 0; i < 4; i++) {
-        auto v = dist(rng);
+        auto v = (uint32_t)dist(rng);
 
-        for (unsigned int j = 0; j < 8; j++) {
-            uint8_t c = v & 0xf;
+        auto sp = span((uint8_t*)&v, sizeof(uint32_t));
 
-            if (c >= 0xa)
-                ret += (char)(c - 0xa + 'A');
-            else
-                ret += (char)(c + '0');
-
-            v >>= 4;
-        }
+        ret.insert(ret.end(), sp.begin(), sp.end());
     }
 
     return ret;
