@@ -17,6 +17,7 @@
 #include "sha256.h"
 #include "authenticode.h"
 #include "cat.h"
+#include "pe.h"
 
 using namespace std;
 
@@ -497,6 +498,7 @@ vector<uint8_t> cat<Hasher>::write() {
         try {
             vector<pair<uint32_t, decltype(Hasher{}.finalize())>> page_hashes;
             decltype(Hasher{}.finalize()) hash;
+            bool is_pe = false;
 
             int fd = open(ent.fn.string().c_str(), O_RDONLY);
 
@@ -521,8 +523,19 @@ vector<uint8_t> cat<Hasher>::write() {
             }
 
             try {
-                hash = authenticode<Hasher>(span((uint8_t*)addr, length));
-                page_hashes = get_page_hashes<Hasher>(span((uint8_t*)addr, length));
+                auto sp = span((uint8_t*)addr, length);
+
+                if (sp.size() > sizeof(IMAGE_DOS_HEADER) && ((const IMAGE_DOS_HEADER*)sp.data())->e_magic == IMAGE_DOS_SIGNATURE) {
+                    is_pe = true;
+                    hash = authenticode<Hasher>(sp);
+                    page_hashes = get_page_hashes<Hasher>(sp);
+                } else {
+                    Hasher ctx;
+
+                    ctx.update(sp.data(), sp.size());
+
+                    hash = ctx.finalize();
+                }
             } catch (...) {
                 munmap(addr, length);
                 close(fd);
@@ -532,10 +545,6 @@ vector<uint8_t> cat<Hasher>::write() {
             munmap(addr, length);
             close(fd);
 
-            // FIXME - detect if PE file
-
-            // FIXME - normal hash if not PE
-
             auto hash_str = make_hash_string(hash);
 
             ASN1_OCTET_STRING_set(&catinfo->digest, hash_str.data(), (int)hash_str.size());
@@ -544,11 +553,11 @@ vector<uint8_t> cat<Hasher>::write() {
                 add_cat_name_value(catinfo->attributes, ce.name, ce.flags, ce.value.c_str());
             }
 
-            // FIXME - or "{DE351A42-8E59-11D0-8C47-00C04FC295EE}" if not PE
-            add_cat_member_info(catinfo->attributes, "{C689AAB8-8E78-11D0-8C47-00C04FC295EE}", 512);
-
-            // FIXME - only if PE
-            add_spc_indirect_data_context<Hasher>(catinfo->attributes, hash, page_hashes);
+            if (is_pe) {
+                add_cat_member_info(catinfo->attributes, "{C689AAB8-8E78-11D0-8C47-00C04FC295EE}", 512);
+                add_spc_indirect_data_context<Hasher>(catinfo->attributes, hash, page_hashes);
+            } else
+                add_cat_member_info(catinfo->attributes, "{DE351A42-8E59-11D0-8C47-00C04FC295EE}", 512);
         } catch (...) {
             CatalogInfo_free(catinfo);
             throw;
