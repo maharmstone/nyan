@@ -39,3 +39,8 @@ if(NOT MSVC)
 else()
 	target_link_options(makecat PUBLIC /MANIFEST:NO)
 endif()
+
+# ----------------------------
+
+install(TARGETS authenticode DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS makecat DESTINATION ${CMAKE_INSTALL_BINDIR})
