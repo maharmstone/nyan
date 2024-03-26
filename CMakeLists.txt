@@ -1,8 +1,12 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.18)
+
+project(nyan
+	VERSION 20240326
+	DESCRIPTION "CAT and INF file utilities"
+	LANGUAGES CXX
+)
 
 include(GNUInstallDirs)
-
-project(nyan VERSION 20240320)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
