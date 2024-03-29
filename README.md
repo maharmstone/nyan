@@ -30,6 +30,7 @@ for documentation.
 
 * Windows version
 * inf2cat
+* inf2cdf
 * cat2cdf
 * signtool?
 
